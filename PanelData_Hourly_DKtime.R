@@ -1,6 +1,7 @@
 library(httr)
 library(jsonlite)
 library(dplyr)
+library(tidyr)
 library(lubridate)
 library(plm)
 library(ggplot2)
@@ -88,83 +89,100 @@ spotprice_panel <- spotprice_all %>%
     .groups = "drop"
   )
 
-# DEN ENDELIG PANEL DATASET ER spotprice_panel
-
-# tjek for duplikater - hvis tom = ingen dublikater (hvis der er duplikater er det pga sommer/vinter tid)
-spotprice_panel %>%
-  group_by(Hour, Date) %>%
-  filter(n() > 1)
-
 # dubletter for dag med 23 timer elrpis (vinter til sommertid)
+spotprice_panel <- spotprice_panel %>%
+  group_by(Date) %>%
+  mutate(n_hours = n()) %>%
+  ungroup()
+
+# Find dage med kun 23 timer
+spotprice_panel %>%
+  group_by(Date) %>%
+  summarise(n_hours = n()) %>%
+  filter(n_hours == 23)
+
+# Udvid til fuld 24-timers struktur
+spotprice_panel <- spotprice_panel %>%
+  group_by(Date) %>%
+  complete(Hour = 0:23) %>%   # sikrer alle timer findes
+  arrange(Date, Hour) %>%
+  fill(Weekday, Month, .direction = "downup") %>%
+  ungroup()
+
+# Udfyld manglende priser med forrige time
+spotprice_panel <- spotprice_panel %>%
+  group_by(Date) %>%
+  arrange(Hour) %>%
+  fill(SpotPriceDKK, SpotPriceEUR, .direction = "down") %>%
+  ungroup()
 
 ####################################
 #### SPOT PRICE ANALYSIS CHPT.2 ####
 ####################################
-
-spotprice_subset <- spotprice_panel %>%
-  filter(Hour %in% c(0, 6, 12, 18)) #%>%
-  # mutate(
-  #   HourLabel = case_when(
-  #     Hour == 0 ~ 24,       # recode midnight to 24
-  #     TRUE ~ Hour
-  #   )
-  # )
-
-# plot af time 8, 16 og 24
-ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
-  geom_line(color = "steelblue") +
-  facet_wrap(~ Hour, ncol = 1, scales = "free_y") +
-   #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
-  labs(
-    title = "Spot Prices Over Time for Selected Hours (DK time)",
-    x = "Date",
-    y = "Spot Price (DKK)",# caption = "Hour 24 = midnight"
-  ) +
-  scale_x_date(
-    date_breaks = "1 months",      # hver 2. måned
-    date_labels = "%b \n %Y"          # fx "Jan 2025"
-  ) +
-  theme_minimal()
-
-
-# Compute average price per Hour and Weekday
-avg_hourly <- spotprice_panel %>%
-  group_by(Weekday, Hour) %>%
-  summarise(
-    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Plot: one line per weekday
-ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
-  geom_line(size = 1) +
-  scale_x_continuous(breaks = 0:23) +
-  labs(
-    title = "Average Hourly Day-Ahead Spot Price by Weekday",
-    x = "Hour of Day",
-    y = "Average Spot Price (DKK)",
-    color = "Weekday"
-  ) +
-  theme_minimal()
-
-avg_hourly_month <- spotprice_panel %>%
-  group_by(Month, Hour) %>%
-  summarise(
-    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Plot: one line per month
-ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
-  geom_line(size = 1) +
-  scale_x_continuous(breaks = 0:23) +
-  labs(
-    title = "Average Hourly Day-Ahead Spot Price by Month",
-    x = "Hour of Day",
-    y = "Average Spot Price (DKK)",
-    color = "Month"
-  ) +
-  theme_minimal()
+# spotprice_subset <- spotprice_panel %>%
+#   filter(Hour %in% c(0, 6, 12, 18)) #%>%
+#   # mutate(
+#   #   HourLabel = case_when(
+#   #     Hour == 0 ~ 24,       # recode midnight to 24
+#   #     TRUE ~ Hour
+#   #   )
+#   # )
+# 
+# # plot af time 8, 16 og 24
+# ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
+#   geom_line(color = "steelblue") +
+#   facet_wrap(~ Hour, ncol = 1, scales = "free_y") +
+#    #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
+#   labs(
+#     title = "Spot Prices Over Time for Selected Hours (DK time)",
+#     x = "Date",
+#     y = "Spot Price (DKK)",# caption = "Hour 24 = midnight"
+#   ) +
+#   scale_x_date(
+#     date_breaks = "1 months",      # hver 2. måned
+#     date_labels = "%b \n %Y"          # fx "Jan 2025"
+#   ) +
+#   theme_minimal()
+# 
+# 
+# # Compute average price per Hour and Weekday
+# avg_hourly <- spotprice_panel %>%
+#   group_by(Weekday, Hour) %>%
+#   summarise(
+#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+#     .groups = "drop"
+#   )
+# 
+# # Plot: one line per weekday
+# ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
+#   geom_line(size = 1) +
+#   scale_x_continuous(breaks = 0:23) +
+#   labs(
+#     title = "Average Hourly Day-Ahead Spot Price by Weekday",
+#     x = "Hour of Day",
+#     y = "Average Spot Price (DKK)",
+#     color = "Weekday"
+#   ) +
+#   theme_minimal()
+# 
+# avg_hourly_month <- spotprice_panel %>%
+#   group_by(Month, Hour) %>%
+#   summarise(
+#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+#     .groups = "drop"
+#   )
+# 
+# # Plot: one line per month
+# ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
+#   geom_line(size = 1) +
+#   scale_x_continuous(breaks = 0:23) +
+#   labs(
+#     title = "Average Hourly Day-Ahead Spot Price by Month",
+#     x = "Hour of Day",
+#     y = "Average Spot Price (DKK)",
+#     color = "Month"
+#   ) +
+#   theme_minimal()
 
 
 #########################
@@ -202,46 +220,103 @@ consumption <- consumption %>%
 consumption_panel <- consumption %>%
   mutate(
     Date = as_date(HourDK),
-    Hour = hour(HourDK)
+    Hour = hour(HourDK),
+    Weekday = wday(Date, label = TRUE, week_start = 1),  # Monday = 1
+    Month = month(Date, label = TRUE, abbr = TRUE)
   ) %>%
   group_by(Date, Hour) %>%   # hvis der også er dubletter her
   summarise(
     ConsumptionkWh = mean(ConsumptionkWh, na.rm = TRUE),
+    Weekday = first(Weekday),  # keep Weekday
+    Month = first(Month),
     .groups = "drop"
   )
 
+# tjekker om der er manglende time
+consumption_panel <- consumption_panel %>%
+  group_by(Date) %>%
+  mutate(n_hours = n()) %>%
+  ungroup()
+
+# Find dage med kun 23 timer
+consumption_panel %>%
+  group_by(Date) %>%
+  summarise(n_hours = n()) %>%
+  filter(n_hours == 23)
+
+# Udvid til fuld 24-timers struktur
+consumption_panel <- consumption_panel %>%
+  group_by(Date) %>%
+  complete(Hour = 0:23) %>%   # sikrer alle timer findes
+  arrange(Date, Hour) %>%
+  fill(Weekday, Month, .direction = "downup") %>%
+  ungroup()
+
+# Udfyld manglende priser med forrige time
+consumption_panel <- consumption_panel %>%
+  group_by(Date) %>%
+  arrange(Hour) %>%
+  fill(ConsumptionkWh, .direction = "down") %>%
+  ungroup()
+
+##################
+#### ALL DATA ####
+##################
 panel_data <- spotprice_panel %>%
-  left_join(consumption_panel, by = c("Date", "Hour"))
+  left_join(
+    consumption_panel %>%
+      select(Date, Hour, ConsumptionkWh),
+    by = c("Date", "Hour")
+  ) %>%
+  filter(!is.na(ConsumptionkWh))
+
+
+# tjekker om alt er rigtigt
+check_panel <- function(df, value_col) {
+  list(
+    wrong_hours = df %>% count(Date) %>% filter(n != 24),
+    missing_values = sum(is.na(df[[value_col]])),
+    duplicates = df %>% count(Date, Hour) %>% filter(n > 1)
+  )
+}
+
+check_panel(spotprice_panel, "SpotPriceDKK")
+check_panel(consumption_panel, "ConsumptionkWh")
+check_panel(panel_data, "SpotPriceDKK")
+check_panel(panel_data, "ConsumptionkWh")
 
 #########################
 #### MODEL SELECTION ####
 #########################
-# Treat 'Hour' as the individual i, 'Date' as the time t
+# # Treat 'Hour' as the individual i, 'Date' as the time t
+# panel_data <- panel_data %>%
+#   dplyr::mutate(
+#     Weekday = as.numeric(Weekday),
+#     Month = as.numeric(Month)
+#     )
 panel_data <- panel_data %>%
-  dplyr::mutate(
-    Weekday = as.numeric(Weekday),
-    Month = as.numeric(Month)
-    )
+  mutate(Date = as.factor(Date))  # important for FE
 
-spotprice_panel_plm <- pdata.frame(panel_data, index = c("Hour","Date"))
-
-# You want to include predictors like Weekday or Month. Common choices:
-## Weekday effect: captures weekly patterns.
-## Month effect: captures seasonal monthly patterns.
-## Both: if you suspect both weekly and monthly seasonality.
-formula <- SpotPriceDKK ~ ConsumptionkWh
+pdata <- pdata.frame(panel_data, index = c("Date", "Hour"))
 
 # Pooled Regression (PR)
-pr_model <- plm(formula, data = spotprice_panel_plm, model = "pooling")
+pr_model <- plm(SpotPriceDKK ~ ConsumptionkWh + factor(Hour) + Weekday + Month,
+  data = pdata,
+  model = "pooling"
+)
 
 # Fixed Effects (FE)
-fe_model <- plm(formula, data = spotprice_panel_plm, model = "within")
+fe_model <- plm(SpotPriceDKK ~ ConsumptionkWh + factor(Hour), 
+  # You cannot include Weekday or Month in FE if they are constant within Date (they get absorbed).
+  data = pdata,
+  model = "within"
+)
 
 # Random Effects (RE)
-re_model <- plm(formula, data = spotprice_panel_plm, model = "random")
-
-# library(lme4)
-# re_model <- lmer(SpotPriceDKK ~ ConsumptionkWh + Weekday + Month + (1|Hour), data = panel_data)
+re_model <- plm(SpotPriceDKK ~ ConsumptionkWh + factor(Hour) + Weekday + Month,
+  data = pdata,
+  model = "random"
+)
 
 ##############
 #### TEST ####
@@ -260,31 +335,10 @@ phtest(fe_model, re_model)
 
 
 #### DYAMIC PANEL DATA ####
-spotprice_panel_dynamic <- panel_data %>%
-  arrange(Hour, Date) %>%
-  group_by(Hour) %>%
-  mutate(SpotPriceLag1 = lag(SpotPriceDKK, 1)) %>%
-  ungroup()
-
-spotprice_panel_dynamic$Weekday <- factor(spotprice_panel_dynamic$Weekday, ordered = FALSE)
-
-spotprice_panel_dynamic_plm <- pdata.frame(
-  spotprice_panel_dynamic,
-  index = c("Hour", "Date")
-)
-
-dyn_re_model <- plm(
-  SpotPriceDKK ~ SpotPriceLag1,
-  data = spotprice_panel_dynamic_plm,
-  model = "random"
-)
-summary(dyn_re_model)
-
-# 
-# dyn_model <- plm(SpotPriceDKK ~ SpotPriceLag1 + Weekday, 
-#                  data = pdata.frame(spotprice_panel_dynamic, index = c("Hour","Date")),
-#                  model = "pooling")
-# summary(dyn_model)
+dyn_model <- plm(SpotPriceDKK ~ SpotPriceLag1 + Weekday,
+                 data = pdata.frame(spotprice_panel_dynamic, index = c("Hour","Date")),
+                 model = "pooling")
+summary(dyn_model)
 # det ses at SpotPriceLag1 p-val<2e-16, hvilket betyder den er significant.
 # Dette tyder på at vi har en Dynamic panel data
 
