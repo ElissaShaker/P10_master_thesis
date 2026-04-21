@@ -1,11 +1,16 @@
+# Consumption af FF Forsyning FAK varmeværk
 library(httr)
 library(jsonlite)
 library(dplyr)
-library(tidyr)
 library(lubridate)
+library(tidyr)
 library(plm)
 library(ggplot2)
 
+#########################
+#### GET DATA ###########
+#########################
+#########################
 ########################
 #### GET SPOT PRICE ####
 ########################
@@ -44,8 +49,8 @@ one_year_ago_str
 
 #spot price util 2025-10-01
 spotprice1 <- get_elspot("https://api.energidataservice.dk/dataset/Elspotprices", 
-  start = one_year_ago_str, # "2025-03-17T00:00",
-  end   = "2025-10-01T00:00" # denne ædres ikke da dataet stopper her
+                         start = one_year_ago_str, # "2025-03-17T00:00",
+                         end   = "2025-10-01T00:00" # denne ædres ikke da dataet stopper her
 )
 
 # Ensure HourDK column are datetime
@@ -115,75 +120,6 @@ spotprice_panel <- spotprice_panel %>%
   arrange(Hour) %>%
   fill(SpotPriceDKK, SpotPriceEUR, .direction = "down") %>%
   ungroup()
-
-####################################
-#### SPOT PRICE ANALYSIS CHPT.2 ####
-####################################
-# spotprice_subset <- spotprice_panel %>%
-#   filter(Hour %in% c(0, 6, 12, 18)) #%>%
-#   # mutate(
-#   #   HourLabel = case_when(
-#   #     Hour == 0 ~ 24,       # recode midnight to 24
-#   #     TRUE ~ Hour
-#   #   )
-#   # )
-# 
-# # plot af time 8, 16 og 24
-# ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
-#   geom_line(color = "steelblue") +
-#   facet_wrap(~ Hour, ncol = 1, scales = "free_y") +
-#    #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
-#   labs(
-#     title = "Spot Prices Over Time for Selected Hours (DK time)",
-#     x = "Date",
-#     y = "Spot Price (DKK)",# caption = "Hour 24 = midnight"
-#   ) +
-#   scale_x_date(
-#     date_breaks = "1 months",      # hver 2. måned
-#     date_labels = "%b \n %Y"          # fx "Jan 2025"
-#   ) +
-#   theme_minimal()
-# 
-# 
-# # Compute average price per Hour and Weekday
-# avg_hourly <- spotprice_panel %>%
-#   group_by(Weekday, Hour) %>%
-#   summarise(
-#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# # Plot: one line per weekday
-# ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
-#   geom_line(size = 1) +
-#   scale_x_continuous(breaks = 0:23) +
-#   labs(
-#     title = "Average Hourly Day-Ahead Spot Price by Weekday",
-#     x = "Hour of Day",
-#     y = "Average Spot Price (DKK)",
-#     color = "Weekday"
-#   ) +
-#   theme_minimal()
-# 
-# avg_hourly_month <- spotprice_panel %>%
-#   group_by(Month, Hour) %>%
-#   summarise(
-#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# # Plot: one line per month
-# ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
-#   geom_line(size = 1) +
-#   scale_x_continuous(breaks = 0:23) +
-#   labs(
-#     title = "Average Hourly Day-Ahead Spot Price by Month",
-#     x = "Hour of Day",
-#     y = "Average Spot Price (DKK)",
-#     color = "Month"
-#   ) +
-#   theme_minimal()
-
 
 #########################
 #### GET CONSUMPTION ####
@@ -259,16 +195,17 @@ consumption_panel <- consumption_panel %>%
   fill(ConsumptionkWh, .direction = "down") %>%
   ungroup()
 
+
 ##################
 #### ALL DATA ####
 ##################
-panel_data <- spotprice_panel %>%
+panel_data <- consumption_panel %>%
   left_join(
-    consumption_panel %>%
-      select(Date, Hour, ConsumptionkWh),
+    spotprice_panel %>%
+      select(Date, Hour, SpotPriceDKK),
     by = c("Date", "Hour")
-  ) %>%
-  filter(!is.na(ConsumptionkWh))
+  ) #%>%
+  #filter(!is.na(ConsumptionkWh))
 
 
 # tjekker om alt er rigtigt
@@ -285,52 +222,37 @@ check_panel(consumption_panel, "ConsumptionkWh")
 check_panel(panel_data, "SpotPriceDKK")
 check_panel(panel_data, "ConsumptionkWh")
 
-####################
-#### PANEL DATA ####
-####################
-# panel_data <- panel_data %>%
-#   arrange(Date, Hour) %>%
-#   mutate(datetime = as.POSIXct(paste(Date, Hour),
-#                                format = "%Y-%m-%d %H"))
-# 
-# 
-# panel_data <- panel_data %>%
-#   arrange(datetime) %>%
-#   mutate(
-#     lag1   = dplyr::lag(SpotPriceDKK, 1),    # 1 hour ago
-#     lag24  = dplyr::lag(SpotPriceDKK, 24),   # 1 day ago
-#     lag168 = dplyr::lag(SpotPriceDKK, 168)   # 1 week ago
-#   )
-# 
+#########################
+#### MODEL SELECTION ####
+#########################
 # # Treat 'Hour' as the individual i, 'Date' as the time t
-# pdata <- pdata.frame(panel_data, index = c("Hour", "Date"))
-# head(pdata)
-#####
+# panel_data <- panel_data %>%
+#   dplyr::mutate(
+#     Weekday = as.numeric(Weekday),
+#     Month = as.numeric(Month)
+#     )
 panel_data <- panel_data %>%
   mutate(Date = as.factor(Date))  # important for FE
 
 pdata <- pdata.frame(panel_data, index = c("Hour", "Date"))
 
-#########################
-#### MODEL SELECTION ####
-#########################
 # Pooled Regression (PR)
-pr_model <- plm(SpotPriceDKK ~ ConsumptionkWh + factor(Hour) + Weekday + Month,
-  data = pdata,
-  model = "pooling"
+pr_model <- plm(ConsumptionkWh ~ SpotPriceDKK + factor(Hour) + Weekday + Month,
+                data = pdata,
+                model = "pooling"
 )
 
 # Fixed Effects (FE)
-fe_model <- plm(SpotPriceDKK ~ ConsumptionkWh + factor(Hour), 
-  # You cannot include Weekday or Month in FE if they are constant within Date (they get absorbed).
-  data = pdata,
-  model = "within"
+fe_model <- plm(ConsumptionkWh ~ SpotPriceDKK + factor(Hour), 
+                # You cannot include Weekday or Month in FE if they are constant within Date (they get absorbed).
+                data = pdata,
+                model = "within"
 )
 
 # Random Effects (RE)
-re_model <- plm(SpotPriceDKK ~ ConsumptionkWh + Weekday + Month,
-  data = pdata,
-  model = "random"
+re_model <- plm(ConsumptionkWh ~ SpotPriceDKK + factor(Hour) + Weekday + Month,
+                data = pdata,
+                model = "random"
 )
 
 ##############
@@ -348,19 +270,32 @@ plmtest(pr_model, type = "bp")
 ## if p-val<0.05 => RE
 phtest(fe_model, re_model)
 
-###########################
 #### DYAMIC PANEL DATA ####
-###########################
-spot_price_panel <- panel_data %>% 
+########## Arrellano Bond #############
+dyn_gmm <- pgmm(
+  ConsumptionkWh ~ lag(ConsumptionkWh, 1) + Weekday |
+    lag(ConsumptionkWh, 2:3),
+  data = pdata_consumption,
+  effect = "individual",
+  model = "twosteps"
+)
+
+summary(dyn_gmm)
+
+
+### HERFRA ELISSA ###
+### big boy ###
+################################################
+consumption_panel_data <- panel_data %>%
   mutate(
     Date = as.Date(Date),
     Weekday = factor(Weekday)
   )
 
-pdata_spotprice <- pdata.frame(spot_price_panel, index = c("Hour", "Date"))
-pdata_spotprice$Date <- as.Date(as.character(pdata_spotprice$Date))
+pdata_consumption <- pdata.frame(consumption_panel_data, index = c("Hour", "Date"))
+pdata_consumption$Date <- as.Date(as.character(pdata_consumption$Date))
 
-panels <- pdata_spotprice %>%
+panels <- pdata_consumption %>%
   as.data.frame() %>%
   group_by(Hour) %>%
   group_split()
@@ -369,8 +304,10 @@ panels <- pdata_spotprice %>%
 # Ensure correct contrasts (VERY important)
 options(contrasts = c("contr.treatment", "contr.poly"))
 
-# Data preparation
-spot_price_panel <- panel_data %>%
+# =========================
+# 2. Data preparation
+# =========================
+consumption_panel_data <- panel_data %>%
   mutate(
     Date = as.Date(Date),
     Weekday = factor(Weekday, levels = c("ma","ti","on","to","fr","lø","sø")),
@@ -378,36 +315,44 @@ spot_price_panel <- panel_data %>%
   )
 
 # Create panel structure
-pdata_spotprice <- pdata.frame(spot_price_panel, index = c("Hour", "Date"))
+pdata_consumption <- pdata.frame(consumption_panel_data, index = c("Hour", "Date"))
 
-# Create lags (panel-aware)
-pdata_spotprice$lag1 <- plm::lag(pdata_spotprice$SpotPriceDKK, 1)
-pdata_spotprice$lag7 <- plm::lag(pdata_spotprice$SpotPriceDKK, 7)
+# =========================
+# 3. Create lags (panel-aware)
+# =========================
+pdata_consumption$lag1 <- lag(pdata_consumption$ConsumptionkWh, 1)
+pdata_consumption$lag7 <- lag(pdata_consumption$ConsumptionkWh, 7)
 
-# Estimate model
+# =========================
+# 4. Estimate model
+# =========================
 dyn_model <- plm(
-  SpotPriceDKK ~ lag1 + lag7 + ConsumptionkWh,
-  data = pdata_spotprice,
+  ConsumptionkWh ~ lag1 + lag7 + SpotPriceDKK + Weekday,
+  data = pdata_consumption,
   model = "pooling"
 )
 summary(dyn_model)
 coef_dyn <- coef(dyn_model)
 
 dyn_model_FE <- plm(
-  SpotPriceDKK ~ lag1 + lag7 + ConsumptionkWh,
-  data = pdata_spotprice,
+  ConsumptionkWh ~ lag1 + lag7 + SpotPriceDKK + Weekday,
+  data = pdata_consumption,
   model = "within"
 )
 summary(dyn_model_FE)
 coef_dyn_FE <- coef(dyn_model_FE)
 
-# Split panels (per hour)
-panels <- pdata_spotprice %>%
+# =========================
+# 5. Split panels (per hour)
+# =========================
+panels <- pdata_consumption %>%
   as.data.frame() %>%
   group_by(Hour) %>%
   group_split()
 
-# Weekday mapping (FIX)
+# =========================
+# 6. Weekday mapping (FIX)
+# =========================
 weekday_map <- c(
   "Monday" = "ma",
   "Tuesday" = "ti",
@@ -418,14 +363,16 @@ weekday_map <- c(
   "Sunday" = "sø"
 )
 
-# Forecast function
+# =========================
+# 7. Forecast function
+# =========================
 forecast_panel <- function(panel_df, h, coef_dyn, avg_price) {
   
   panel_df <- panel_df[order(panel_df$Date), ]
   panel_df$Date <- as.Date(panel_df$Date)
   
-  last_y  <- tail(panel_df$SpotPriceDKK, 1)
-  last_y7 <- tail(panel_df$SpotPriceDKK, 7)[1]  # 7 days ago
+  last_y  <- tail(panel_df$ConsumptionkWh, 1)
+  last_y7 <- tail(panel_df$ConsumptionkWh, 7)[1]  # 7 days ago
   
   last_date <- max(panel_df$Date)
   future_dates <- seq(from = last_date + 1, by = "day", length.out = h)
@@ -437,7 +384,7 @@ forecast_panel <- function(panel_df, h, coef_dyn, avg_price) {
     lag1_val <- if (t == 1) last_y else forecast[t - 1]
     
     if (t <= 7) {
-      lag7_val <- panel_df$SpotPriceDKK[nrow(panel_df) - 7 + t]
+      lag7_val <- panel_df$ConsumptionkWh[nrow(panel_df) - 7 + t]
     } else {
       lag7_val <- forecast[t - 7]
     }
@@ -467,9 +414,12 @@ forecast_panel <- function(panel_df, h, coef_dyn, avg_price) {
   )
 }
 
-h <- 5
+# =========================
+# 8. Run forecasts
+# =========================
+h <- 5  # 5 days ahead (per hour panel)
 
-avg_price <- mean(pdata_spotprice$SpotPriceDKK, na.rm = TRUE)
+avg_price <- mean(pdata_consumption$SpotPriceDKK, na.rm = TRUE)
 
 forecast_list <- lapply(
   panels,
@@ -481,19 +431,21 @@ forecast_list <- lapply(
 
 forecast_df <- do.call(rbind, forecast_list)
 
-# Historical data
-history_df <- pdata_spotprice %>%
+# =========================
+# 9. Historical data
+# =========================
+history_df <- pdata_consumption %>%
   as.data.frame() %>%
-  select(Hour, Date, SpotPriceDKK)
+  select(Hour, Date, ConsumptionkWh)
 
-history_df <- pdata_spotprice %>%
+history_df <- pdata_consumption %>%
   as.data.frame() %>%
   mutate(
     Date = as.Date(Date),
     Hour = as.factor(Hour),
-    SpotPriceDKK = as.numeric(SpotPriceDKK)
+    ConsumptionkWh = as.numeric(ConsumptionkWh)
   ) %>%
-  select(Hour, Date, SpotPriceDKK)
+  select(Hour, Date, ConsumptionkWh)
 
 forecast_df <- forecast_df %>%
   mutate(
@@ -502,7 +454,10 @@ forecast_df <- forecast_df %>%
     Forecast = as.numeric(Forecast)
   )
 
-# Plot
+# =========================
+# 10. Plot
+# =========================
+##########
 cutoff_date <- max(history_df$Date) - 30
 history_recent <- history_df %>%
   filter(Date >= cutoff_date)
@@ -511,7 +466,7 @@ forecast_recent <- forecast_df
 
 ggplot() +
   geom_line(data = history_recent,
-            aes(x = Date, y = SpotPriceDKK, group = Hour),
+            aes(x = Date, y = ConsumptionkWh, group = Hour),
             alpha = 0.2) +
   geom_line(data = forecast_recent,
             aes(x = Date, y = Forecast, group = Hour),
@@ -526,7 +481,16 @@ ggplot() +
     x = "Date"
   )
 
-# Combine ts
+# agg_history <- history_recent %>%
+#   group_by(Date) %>%
+#   summarise(Consumption = sum(ConsumptionkWh))
+# 
+# agg_forecast <- forecast_recent %>%
+#   group_by(Date) %>%
+#   summarise(Forecast = sum(Forecast))
+
+
+#### Combine ts #########
 history_ts <- history_df %>%
   mutate(
     Hour = as.numeric(as.character(Hour)),
@@ -541,7 +505,7 @@ forecast_ts <- forecast_df %>%
   ) %>%
   arrange(Datetime)
 
-# 14 days
+#### 14 dage ####
 cutoff_dt <- max(history_ts$Datetime) - 14*24*3600
 
 history_recent_ts <- history_ts %>%
@@ -551,7 +515,6 @@ scale_x_datetime(
   date_breaks = "12 hours",
   date_labels = "%b %d\n%H:%M"
 )
-
 scale_x_datetime(
   date_breaks = "1 day",
   date_labels = "%b %d"
@@ -559,7 +522,7 @@ scale_x_datetime(
 
 ggplot() +
   geom_line(data = history_recent_ts,
-            aes(x = Datetime, y = SpotPriceDKK),
+            aes(x = Datetime, y = ConsumptionkWh),
             alpha = 0.5) +
   geom_line(data = forecast_ts,
             aes(x = Datetime, y = Forecast),
@@ -575,88 +538,6 @@ ggplot() +
     title = "Continuous Hourly Forecast (Last 14 Days)",
     subtitle = "Dashed line = forecast start",
     x = "Datetime",
-    y = "Spot Price (DKK)"
+    y = "Consumption (kWh)"
   )
 
-
-
-##########
-
-library(dplyr)
-
-build_lags <- function(df) {
-  
-  df <- df %>%
-    mutate(Date = as.Date(Date)) %>%
-    arrange(Hour, Date)
-  
-  df <- df %>%
-    group_by(Hour) %>%
-    mutate(
-      lag1  = dplyr::lag(SpotPriceDKK, 1),
-      lag7  = dplyr::lag(SpotPriceDKK, 7),
-      lag24 = dplyr::lag(SpotPriceDKK, 24)
-    ) %>%
-    ungroup()
-  
-  return(df)
-}
-
-forecast_hourly_panel <- function(panel_df, h_days, coef_dyn) {
-  
-  panel_df <- panel_df %>%
-    mutate(Date = as.Date(Date)) %>%
-    arrange(Hour, Date)
-  
-  hours <- sort(unique(panel_df$Hour))
-  
-  forecasts_all <- list()
-  
-  for (hr in hours) {
-    
-    df_h <- panel_df %>%
-      filter(Hour == hr) %>%
-      arrange(Date)
-    
-    last_date <- max(df_h$Date)
-    future_dates <- seq(last_date + 1, by = "day", length.out = h_days)
-    
-    y_hist <- df_h$SpotPriceDKK
-    n <- length(y_hist)
-    
-    forecast <- numeric(h_days)
-    
-    for (t in 1:h_days) {
-      
-      # lag 1 (recursive)
-      lag1_val <- if (t == 1) y_hist[n] else forecast[t - 1]
-      
-      # lag 7 (weekly)
-      lag7_val <- if (t <= 7) {
-        y_hist[n - (7 - t)]
-      } else {
-        forecast[t - 7]
-      }
-      
-      # weekday
-      wd <- factor(weekdays(future_dates[t]),
-                   levels = levels(panel_df$Weekday))
-      
-      wd_mat <- model.matrix(~ wd)
-      
-      forecast[t] <-
-        coef_dyn["(Intercept)"] +
-        coef_dyn["lag1"] * lag1_val +
-        coef_dyn["lag7"] * lag7_val +
-        sum(coef_dyn[grep("Weekday", names(coef_dyn))] * wd_mat[1, -1])
-    }
-    
-    forecasts_all[[as.character(hr)]] <- data.frame(
-      Hour = hr,
-      Date = future_dates,
-      Forecast = forecast
-    )
-  }
-  
-  bind_rows(forecasts_all)
-}
