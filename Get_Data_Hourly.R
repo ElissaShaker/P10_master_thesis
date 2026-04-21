@@ -95,11 +95,11 @@ spotprice_panel <- spotprice_panel %>%
   mutate(n_hours = n()) %>%
   ungroup()
 
-# Find dage med kun 23 timer
+# Find dage ikke 24 timer
 spotprice_panel %>%
   group_by(Date) %>%
   summarise(n_hours = n()) %>%
-  filter(n_hours == 23)
+  filter(n_hours != 24)
 
 # Udvid til fuld 24-timers struktur
 spotprice_panel <- spotprice_panel %>%
@@ -119,70 +119,70 @@ spotprice_panel <- spotprice_panel %>%
 ####################################
 #### SPOT PRICE ANALYSIS CHPT.2 ####
 ####################################
-# spotprice_subset <- spotprice_panel %>%
-#   filter(Hour %in% c(0, 6, 12, 18)) #%>%
-#   # mutate(
-#   #   HourLabel = case_when(
-#   #     Hour == 0 ~ 24,       # recode midnight to 24
-#   #     TRUE ~ Hour
-#   #   )
-#   # )
-# 
-# # plot af time 8, 16 og 24
-# ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
-#   geom_line(color = "steelblue") +
-#   facet_wrap(~ Hour, ncol = 1, scales = "free_y") +
-#    #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
-#   labs(
-#     title = "Spot Prices Over Time for Selected Hours (DK time)",
-#     x = "Date",
-#     y = "Spot Price (DKK)",# caption = "Hour 24 = midnight"
-#   ) +
-#   scale_x_date(
-#     date_breaks = "1 months",      # hver 2. måned
-#     date_labels = "%b \n %Y"          # fx "Jan 2025"
-#   ) +
-#   theme_minimal()
-# 
-# 
-# # Compute average price per Hour and Weekday
-# avg_hourly <- spotprice_panel %>%
-#   group_by(Weekday, Hour) %>%
-#   summarise(
-#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# # Plot: one line per weekday
-# ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
-#   geom_line(size = 1) +
-#   scale_x_continuous(breaks = 0:23) +
-#   labs(
-#     title = "Average Hourly Day-Ahead Spot Price by Weekday",
-#     x = "Hour of Day",
-#     y = "Average Spot Price (DKK)",
-#     color = "Weekday"
-#   ) +
-#   theme_minimal()
-# 
-# avg_hourly_month <- spotprice_panel %>%
-#   group_by(Month, Hour) %>%
-#   summarise(
-#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# # Plot: one line per month
-# ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
-#   geom_line(size = 1) +
-#   scale_x_continuous(breaks = 0:23) +
-#   labs(
-#     title = "Average Hourly Day-Ahead Spot Price by Month",
-#     x = "Hour of Day",
-#     y = "Average Spot Price (DKK)",
-#     color = "Month"
-#   ) +
-#   theme_minimal()
+spotprice_subset <- spotprice_panel %>%
+  filter(Hour %in% c(0, 6, 12, 18)) #%>%
+  # mutate(
+  #   HourLabel = case_when(
+  #     Hour == 0 ~ 24,       # recode midnight to 24
+  #     TRUE ~ Hour
+  #   )
+  # )
+
+# plot af time 8, 16 og 24
+ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ Hour, ncol = 1, scales = "free_y") +
+   #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Spot Prices Over Time for Selected Hours (DK time)",
+    x = "Date",
+    y = "Spot Price (DKK)",# caption = "Hour 24 = midnight"
+  ) +
+  scale_x_date(
+    date_breaks = "1 months",      # hver 2. måned
+    date_labels = "%b \n %Y"          # fx "Jan 2025"
+  ) +
+  theme_minimal()
+
+
+# Compute average price per Hour and Weekday
+avg_hourly <- spotprice_panel %>%
+  group_by(Weekday, Hour) %>%
+  summarise(
+    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot: one line per weekday
+ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
+  geom_line(size = 1) +
+  scale_x_continuous(breaks = 0:23) +
+  labs(
+    title = "Average Hourly Day-Ahead Spot Price by Weekday",
+    x = "Hour of Day",
+    y = "Average Spot Price (DKK)",
+    color = "Weekday"
+  ) +
+  theme_minimal()
+
+avg_hourly_month <- spotprice_panel %>%
+  group_by(Month, Hour) %>%
+  summarise(
+    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot: one line per month
+ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
+  geom_line(size = 1) +
+  scale_x_continuous(breaks = 0:23) +
+  labs(
+    title = "Average Hourly Day-Ahead Spot Price by Month",
+    x = "Hour of Day",
+    y = "Average Spot Price (DKK)",
+    color = "Month"
+  ) +
+  theme_minimal()
 
 
 #########################
