@@ -5,7 +5,7 @@ library(tidyr)
 library(lubridate)
 library(plm)
 library(ggplot2)
-
+setwd("~/Desktop/P10")
 ########################
 #### GET SPOT PRICE ####
 ########################
@@ -135,7 +135,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
    #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
   labs(
     title = "Spot Prices Over Time for Selected Hours (DK time)",
-    x = "Date",
+    x = "",
     y = "Spot Price (DKK)",# caption = "Hour 24 = midnight"
   ) +
   scale_x_date(
@@ -143,6 +143,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
     date_labels = "%b \n %Y"          # fx "Jan 2025"
   ) +
   theme_minimal()
+ggsave("plots/Hourly/spotprice_hourly_Time0_8_16.png", width = 10, height = 6, dpi = 300)
 
 
 # Compute average price per Hour and Weekday
@@ -164,6 +165,8 @@ ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
     color = "Weekday"
   ) +
   theme_minimal()
+ggsave("plots/Hourly/spotprice_avg_hourly_weekday.png", width = 10, height = 6, dpi = 300)
+
 
 avg_hourly_month <- spotprice_panel %>%
   group_by(Month, Hour) %>%
@@ -183,6 +186,7 @@ ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
     color = "Month"
   ) +
   theme_minimal()
+ggsave("plots/Hourly/spotprice_avg_hourly_month.png", width = 10, height = 6, dpi = 300)
 
 
 #########################

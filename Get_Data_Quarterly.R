@@ -1,10 +1,15 @@
 library(httr)
 library(jsonlite)
 library(dplyr)
-library(lubridate)
 library(tidyr)
+library(lubridate)
 library(plm)
-
+library(ggplot2)
+setwd("~/Desktop/P10")
+########################
+#### GET SPOT PRICE ####
+########################
+# function til at hente spotpriser i DK1
 get_elspot <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
   query <- list()
   
@@ -143,7 +148,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
   facet_wrap(~ Quarter_label, ncol = 1, scales = "free_y") +
   labs(
     title = paste("Spot Prices at", hour,"(4 quarters per day)"),
-    x = "Date",
+    x = "",
     y = "Spot Price (DKK)"
   ) +
   scale_x_date(
@@ -151,6 +156,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
     date_labels = "%b\n%Y"
   ) +
   theme_minimal()
+ggsave("plots/Quarterly/spotprice_querterly_Time10.png", width = 10, height = 6, dpi = 300)
 
 ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK, color = Quarter_label)) +
   geom_line(linewidth = 0.5) +
@@ -171,6 +177,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK, color = Quarter_label))
     date_labels = "%b\n%Y"
   ) +
   theme_minimal() 
+ggsave("plots/Quarterly/spotprice_querterly_Time10_oneplot.png", width = 10, height = 6, dpi = 300)
 
 
 # Plot: one line per weekday
@@ -193,6 +200,8 @@ ggplot(avg_quarterly, aes(x = Quarter, y = AvgPriceDKK, color = Weekday)) +
   ) +
   
   theme_minimal()
+ggsave("plots/Quarterly/spotprice_avg_quarterly_weekday.png", width = 10, height = 6, dpi = 300)
+
 
 # Plot: one line per month
 avg_quarterly_month <- spotprice_panel %>%
@@ -215,6 +224,8 @@ ggplot(avg_quarterly_month, aes(x = Quarter, y = AvgPriceDKK, color = Month)) +
   ) +
   
   theme_minimal()
+ggsave("plots/Quarterly/spotprice_avg_quarterly_month.png", width = 10, height = 6, dpi = 300)
+
 
 #########################
 #### GET CONSUMPTION ####
