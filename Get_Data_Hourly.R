@@ -117,82 +117,184 @@ spotprice_panel <- spotprice_panel %>%
   fill(SpotPriceDKK, SpotPriceEUR, .direction = "down") %>%
   ungroup()
 
+spotprice_panel <- spotprice_panel %>% 
+  mutate(
+    # safe log transform for negative prices
+    LogPrice = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 1)
+    )
+
 ####################################
 #### SPOT PRICE ANALYSIS CHPT.2 ####
 ####################################
-# spotprice_subset <- spotprice_panel %>%
-#   filter(Hour %in% c(0, 6, 12, 18)) #%>%
-#   # mutate(
-#   #   HourLabel = case_when(
-#   #     Hour == 0 ~ 24,       # recode midnight to 24
-#   #     TRUE ~ Hour
-#   #   )
-#   # )
-# 
-# # plot af time 8, 16 og 24
-# ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
-#   geom_line(color = "steelblue") +
-#   facet_wrap(~ Hour, ncol = 1, scales = "free_y") +
-#    #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
-#   labs(
-#     title = "Spot Prices Over Time for Selected Hours (DK time)",
-#     x = "",
-#     y = "Spot Price (DKK)",# caption = "Hour 24 = midnight"
-#   ) +
-#   scale_x_date(
-#     date_breaks = "3 months",      # hver 2. måned
-#     date_labels = "%b \n %Y"          # fx "Jan 2025"
-#   ) +
-#   theme_minimal()
+spotprice_subset <- spotprice_panel %>%
+  filter(Hour %in% c(0, 6, 12, 18)) #%>%
+  # mutate(
+  #   HourLabel = case_when(
+  #     Hour == 0 ~ 24,       # recode midnight to 24
+  #     TRUE ~ Hour
+  #   )
+  # )
+
+# plot af time 8, 16 og 24
+ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ Hour, ncol = 1, scales = "free_y") +
+   #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Spot Prices Over Time for Selected Hours (DK time)",
+    x = "",
+    y = "Spot Price (DKK)",# caption = "Hour 24 = midnight"
+  ) +
+  scale_x_date(
+    date_breaks = "3 months",      # hver 2. måned
+    date_labels = "%b \n %Y"          # fx "Jan 2025"
+  ) +
+  theme_minimal()
 # ggsave("plots/Hourly/spotprice_hourly_Time0_8_16.png", width = 10, height = 6, dpi = 300)
-# 
-# 
-# # Compute average price per Hour and Weekday
-# avg_hourly <- spotprice_panel %>%
-#   group_by(Weekday, Hour) %>%
-#   summarise(
-#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# # Plot: one line per weekday
-# ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
-#   geom_line(size = 1) +
-#   scale_x_continuous(breaks = 0:23) +
-#   labs(
-#     title = "Average Hourly Day-Ahead Spot Price by Weekday",
-#     x = "Hour of Day",
-#     y = "Average Spot Price (DKK)",
-#     color = "Weekday"
-#   ) +
-#   theme_minimal(base_size = 20)  # <- key change
+
+spotprice_panel <- spotprice_panel %>%
+  filter(Date >= as.Date("2023-01-01"))
+
+# Compute average price per Hour and Weekday
+avg_hourly <- spotprice_panel %>%
+  group_by(Weekday, Hour) %>%
+  summarise(
+    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot: one line per weekday
+ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
+  geom_line(size = 1) +
+  scale_x_continuous(breaks = 0:23) +
+  labs(
+    title = "Average Hourly Day-Ahead Spot Price by Weekday",
+    x = "Hour of Day",
+    y = "Average Spot Price (DKK)",
+    color = "Weekday"
+  ) +
+  theme_minimal(base_size = 20)  # <- key change
 # ggsave("plots/Hourly/spotprice_avg_hourly_weekday.png", width = 10, height = 6, dpi = 600)
-# 
-# 
-# avg_hourly_month <- spotprice_panel %>%
-#   group_by(Month, Hour) %>%
-#   summarise(
-#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# # Plot: one line per month
-# ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
-#   geom_line(size = 1) +
-#   scale_x_continuous(breaks = 0:23) +
-#   labs(
-#     title = "Average Hourly Day-Ahead Spot Price by Month",
-#     x = "Hour of Day",
-#     y = "Average Spot Price (DKK)",
-#     color = "Month"
-#   ) +
-#   theme_minimal(base_size = 20)  # <- key change
+
+
+avg_hourly_month <- spotprice_panel %>%
+  group_by(Month, Hour) %>%
+  summarise(
+    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot: one line per month
+ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
+  geom_line(size = 1) +
+  scale_x_continuous(breaks = 0:23) +
+  labs(
+    title = "Average Hourly Day-Ahead Spot Price by Month",
+    x = "Hour of Day",
+    y = "Average Spot Price (DKK)",
+    color = "Month"
+  ) +
+  theme_minimal(base_size = 20)  # <- key change
 # ggsave("plots/Hourly/spotprice_avg_hourly_month.png", width = 10, height = 6, dpi = 600)
-# 
+
+
+# table
+quarterly_desc_stats <- function(data, start_hour = 4, n_hours = 2) {
+  
+  end_hour <- start_hour + n_hours - 1
+  
+  stats <- data %>%
+    
+    # keep only selected hours
+    filter(Hour >= start_hour, Hour <= end_hour) %>%
+    group_by(Hour) %>%
+    summarise(
+      Min     = min(LogPrice, na.rm = TRUE),
+      Mean    = mean(LogPrice, na.rm = TRUE),
+      Median  = median(LogPrice, na.rm = TRUE),
+      Max     = max(LogPrice, na.rm = TRUE),
+      Sd      = sd(LogPrice, na.rm = TRUE),
+      Skewness = e1071::skewness(LogPrice, na.rm = TRUE),
+      Kurtosis = e1071::kurtosis(LogPrice, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  return(stats)
+}
+
+test <- quarterly_desc_stats(spotprice_panel,
+                             start_hour = 12,
+                             n_hours = 2)
+
+save_quarterly_latex_table <- function(data, start_hour = 12, n_hours = 2,
+                                       output_dir = "Tables") {
+  
+  table_stat <- quarterly_desc_stats(data,
+                                     start_hour = start_hour,
+                                     n_hours = n_hours)
+  
+  latex_table <- table_stat %>%
+    select(Hour, Min, Mean, Median, Max, Sd, Skewness, Kurtosis) %>%
+    pivot_longer(
+      cols = -Hour,
+      names_to = "Statistic",
+      values_to = "Value"
+    ) %>%
+    pivot_wider(
+      names_from = Hour,
+      values_from = Value
+    ) %>%
+    mutate(Statistic = factor(
+      Statistic,
+      levels = c("Min", "Mean", "Median", "Max", "Sd", "Skewness", "Kurtosis")
+    )) %>%
+    arrange(Statistic)
+  
+  tex_output <- latex_table %>%
+    kable(
+      format = "latex",
+      booktabs = TRUE,
+      digits = 3,
+      align = "c",
+      caption = paste0(
+        "Descriptive statistics for the log prices by hour"
+      ),
+      label = paste0(
+        "tab:hourly_descriptive_statistics_starthour_",
+        start_hour
+      )
+    ) %>%
+    kable_styling(position = "center", latex_options = "striped") %>%
+    as.character()
+  
+  file_name <- paste0(
+    output_dir,
+    "/hourly_descriptive_statistics_starthour_",
+    start_hour,
+    ".tex"
+  )
+  
+  writeLines(tex_output, file_name)
+  
+  return(invisible(latex_table))
+}
+save_quarterly_latex_table(spotprice_panel, start_hour = 12, n_hours = 2)
+
+
+#########################
+mean(spotprice_panel$SpotPriceDKK <= 0, na.rm = TRUE)
+
+spotprice_panel %>%
+  summarise(
+    n_total = n(),
+    n_non_positive = sum(SpotPriceDKK <= 0, na.rm = TRUE),
+    share_non_positive = mean(SpotPriceDKK <= 0, na.rm = TRUE)
+  )
 
 #########################
 #### GET CONSUMPTION ####
 #########################
+start_data_2023 <- "2023-01-01"
 # https://www.energidataservice.dk/dso-electricity/ConsumptionConsumerCategoryHour
 get_consumption <- function(base, start = NULL, region = "Region Nordjylland") {
   query <- list()
@@ -214,7 +316,7 @@ get_consumption <- function(base, start = NULL, region = "Region Nordjylland") {
 
 # Brug funktionen:
 consumption <- get_consumption("https://api.energidataservice.dk/dataset/ConsumptionConsumerCategoryHour?",
-                               start = one_year_ago_str)%>% 
+                               start = start_data_2023)%>% 
   rename(HourUTC = TimeUTC,
          HourDK = TimeDK)
 
@@ -291,7 +393,7 @@ get_wind <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
 
 wind <- get_wind(
   base = "https://api.energidataservice.dk/dataset/ElectricityProdex5MinRealtime?",
-  start = one_year_ago_str,
+  start = start_data_2023,
   end   = today_end_str
 )
 
@@ -430,9 +532,10 @@ check_panel(panel_data, "SolarPower")
 #### PANEL DATA ####
 ####################
 panel_data <- panel_data %>%
-  mutate(Date = as.factor(Date))  # important for FE
+  mutate(Date = as.factor(Date)
+  )  # important for FE
 
 pdata <- pdata.frame(panel_data, index = c("Hour", "Date"))
 
 end_time <- Sys.time()
-end_time - start_time
+cat(end_time - start_time)

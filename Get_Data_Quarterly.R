@@ -141,221 +141,231 @@ spotprice_panel <- spotprice_panel %>%
 ####################################
 #### SPOT PRICE ANALYSIS CHPT.2 ####
 ####################################
-# hour <- 10
-# 
-# spotprice_subset <- spotprice_panel %>%
-#   filter(Quarter %in% (hour*4):(hour*4 + 3),
-#          Date >= as.Date("2025-10-01")) %>%
-#   mutate(
-#     Quarter_in_hour = Quarter - hour*4,
-#     Quarter_label = case_when(
-#       Quarter_in_hour == 0 ~ paste0(sprintf("%02d", hour), ":00-", sprintf("%02d", hour), ":15"),
-#       Quarter_in_hour == 1 ~ paste0(sprintf("%02d", hour), ":15-", sprintf("%02d", hour), ":30"),
-#       Quarter_in_hour == 2 ~ paste0(sprintf("%02d", hour), ":30-", sprintf("%02d", hour), ":45"),
-#       Quarter_in_hour == 3 ~ paste0(sprintf("%02d", hour), ":45-", sprintf("%02d", hour + 1), ":00")
-#     )
-#   )
-# 
-# spotprice_subset <- spotprice_subset %>%
-#   mutate(Quarter_label = factor(Quarter_label))
-# 
-# ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
-#   geom_line(color = "steelblue") +
-#   facet_wrap(~ Quarter_label, ncol = 1, scales = "free_y") +
-#   labs(
-#     title = paste("Spot Prices at", hour,"(4 quarters per day)"),
-#     x = "",
-#     y = "Spot Price (DKK)"
-#   ) +
-#   scale_x_date(
-#     date_breaks = "1 month",
-#     date_labels = "%b\n%Y"
-#   ) +
-#   theme_minimal()
+hour <- 10
+
+spotprice_subset <- spotprice_panel %>%
+  filter(Quarter %in% (hour*4):(hour*4 + 3),
+         Date >= as.Date("2025-10-01")) %>%
+  mutate(
+    Quarter_in_hour = Quarter - hour*4,
+    Quarter_label = case_when(
+      Quarter_in_hour == 0 ~ paste0(sprintf("%02d", hour), ":00-", sprintf("%02d", hour), ":15"),
+      Quarter_in_hour == 1 ~ paste0(sprintf("%02d", hour), ":15-", sprintf("%02d", hour), ":30"),
+      Quarter_in_hour == 2 ~ paste0(sprintf("%02d", hour), ":30-", sprintf("%02d", hour), ":45"),
+      Quarter_in_hour == 3 ~ paste0(sprintf("%02d", hour), ":45-", sprintf("%02d", hour + 1), ":00")
+    )
+  )
+
+spotprice_subset <- spotprice_subset %>%
+  mutate(Quarter_label = factor(Quarter_label))
+
+ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ Quarter_label, ncol = 1, scales = "free_y") +
+  labs(
+    title = paste("Spot Prices at", hour,"(4 quarters per day)"),
+    x = "",
+    y = "Spot Price (DKK)"
+  ) +
+  scale_x_date(
+    date_breaks = "1 month",
+    date_labels = "%b\n%Y"
+  ) +
+  theme_minimal()
 # ggsave("plots/Quarterly/spotprice_querterly_Time10.png", width = 10, height = 6, dpi = 300)
-# 
-# ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK, color = Quarter_label)) +
-#   geom_line(linewidth = 0.5) +
-#   # scale_color_manual(values = c(
-#   #   "0" = "#d62728",
-#   #   "1" = "#ff7f0e",
-#   #   "2" = "#2ca02c",
-#   #   "3" = "#1f77b4"
-#   # )) +
-#   labs(
-#     title = paste("Spot Prices at", hour, "(4 quarters per day)"),
-#     # x = "Date",
-#     y = "Spot Price (DKK)",
-#     color = "Quarter"
-#   ) +
-#   scale_x_date(
-#     date_breaks = "1 month",
-#     date_labels = "%b\n%Y"
-#   ) +
-#   theme_minimal()
+
+ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK, color = Quarter_label)) +
+  geom_line(linewidth = 0.5) +
+  # scale_color_manual(values = c(
+  #   "0" = "#d62728",
+  #   "1" = "#ff7f0e",
+  #   "2" = "#2ca02c",
+  #   "3" = "#1f77b4"
+  # )) +
+  labs(
+    title = paste("Spot Prices at", hour, "(4 quarters per day)"),
+    # x = "Date",
+    y = "Spot Price (DKK)",
+    color = "Quarter"
+  ) +
+  scale_x_date(
+    date_breaks = "1 month",
+    date_labels = "%b\n%Y"
+  ) +
+  theme_minimal()
 # ggsave("plots/Quarterly/spotprice_querterly_Time10_oneplot.png", width = 10, height = 6, dpi = 300)
-# 
-# 
-# # Plot: one line per weekday
-# avg_quarterly <- spotprice_panel %>%
-#   group_by(Weekday, Quarter) %>%
-#   summarise(
-#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# ggplot(avg_quarterly, aes(x = Quarter, y = AvgPriceDKK, color = Weekday)) +
-#   geom_line(linewidth = 1) +
-#   scale_x_continuous(breaks = seq(0, 95, by = 4)) +
-#   labs(
-#     title = "Average Quarter-Hour Spot Price by Weekday",
-#     x = "Quarter of Day (0–95)",
-#     y = "Average Spot Price (DKK)",
-#     color = "Weekday"
-#   ) +
-#   theme_minimal(base_size = 20)  # <- key change
+
+
+# Plot: one line per weekday
+avg_quarterly <- spotprice_panel %>%
+  group_by(Weekday, Quarter) %>%
+  summarise(
+    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(avg_quarterly, aes(x = Quarter, y = AvgPriceDKK, color = Weekday)) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(breaks = seq(0, 95, by = 4)) +
+  labs(
+    title = "Average Quarter-Hour Spot Price by Weekday",
+    x = "15 minutes",
+    y = "Average Spot Price (DKK)",
+    color = "Weekday"
+  ) +
+  theme_minimal(base_size = 20)  # <- key change
 # ggsave("plots/Quarterly/spotprice_avg_quarterly_weekday.png", width = 10, height = 6, dpi = 600)
-# 
-# 
-# # Plot: one line per month
-# avg_quarterly_month <- spotprice_panel %>%
-#   group_by(Month, Quarter) %>%
-#   summarise(
-#     AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# ggplot(avg_quarterly_month, aes(x = Quarter, y = AvgPriceDKK, color = Month)) +
-#   geom_line(linewidth = 1) +
-#   scale_x_continuous(breaks = seq(0, 95, by = 4)) +
-#   labs(
-#     title = "Average Quarter-Hour Spot Price by Month",
-#     x = "Quarter of Day (0–95)",
-#     y = "Average Spot Price (DKK)",
-#     color = "Month"
-#   ) +
-#   theme_minimal(base_size = 20)  # <- key change
+
+
+# Plot: one line per month
+avg_quarterly_month <- spotprice_panel %>%
+  group_by(Month, Quarter) %>%
+  summarise(
+    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(avg_quarterly_month, aes(x = Quarter, y = AvgPriceDKK, color = Month)) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(breaks = seq(0, 95, by = 4)) +
+  labs(
+    title = "Average Quarter-Hour Spot Price by Month",
+    x = "15 minutes",
+    y = "Average Spot Price (DKK)",
+    color = "Month"
+  ) +
+  theme_minimal(base_size = 20)  # <- key change
 # ggsave("plots/Quarterly/spotprice_avg_quarterly_month.png", width = 10, height = 6, dpi = 600)
-# 
-# # plot of log price
-# plot_quarter_hours <- function(data, start_hour = 12) {
-# 
-#   # quarters for 4 consecutive hours
-#   selected_quarters <- (start_hour * 4):((start_hour + 4) * 4 - 1)
-# 
-#   plot_data <- data %>%
-#     filter(Quarter %in% selected_quarters)
-# 
-#   ggplot(plot_data, aes(x = Date, y = LogPrice)) +
-#     geom_line(size = 0.2, colour = "black") +
-# 
-#     facet_wrap(~ QuarterLabel, ncol = 4) +
-#     labs(
-#       title = paste0(
-#         "Quarter-hour electricity prices (hours ",
-#         start_hour, "–", start_hour + 3, ")"
-#       ),
-#       x = NULL,
-#       y = NULL
-#     ) +
-# 
-#     theme_bw() +
-#     theme(
-#       strip.text = element_text(size = 10),
-#       axis.text.x = element_text(size = 6),
-#       axis.text.y = element_text(size = 6),
-#       panel.grid = element_blank(),
-#       plot.title = element_text(face = "bold")
-#     )
-# }
-# 
-# plot_quarter_hours(spotprice_log, start_hour = 12)
+
+# plot of log price
+plot_quarter_hours <- function(data, start_hour = 12) {
+
+  # quarters for 4 consecutive hours
+  selected_quarters <- (start_hour * 4):((start_hour + 4) * 4 - 1)
+
+  plot_data <- data %>%
+    filter(Quarter %in% selected_quarters)
+
+  ggplot(plot_data, aes(x = Date, y = LogPrice)) +
+    geom_line(size = 0.2, colour = "black") +
+
+    facet_wrap(~ QuarterLabel, ncol = 4) +
+    labs(
+      title = paste0(
+        "Quarter-hour electricity prices (hours ",
+        start_hour, "–", start_hour + 3, ")"
+      ),
+      x = NULL,
+      y = NULL
+    ) +
+
+    theme_bw() +
+    theme(
+      strip.text = element_text(size = 10),
+      axis.text.x = element_text(size = 6),
+      axis.text.y = element_text(size = 6),
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold")
+    )
+}
+
+plot_quarter_hours(spotprice_panel, start_hour = 12)
 # ggsave("plots/Quarterly/Quarter_hour_spotprice_4_4_plot.png", width = 10, height = 6, dpi = 600)
-# 
-# 
-# # table
-# quarterly_desc_stats <- function(data, start_hour = 4, n_hours = 2) {
-# 
-#   end_hour <- start_hour + n_hours - 1
-# 
-#   stats <- data %>%
-# 
-#     # keep only selected hours
-#     mutate(Hour = Quarter %/% 4) %>%
-#     filter(Hour >= start_hour, Hour <= end_hour) %>%
-#     group_by(Hour, QuarterLabel) %>%
-#     summarise(
-#       Min     = min(LogPrice, na.rm = TRUE),
-#       Mean    = mean(LogPrice, na.rm = TRUE),
-#       Median  = median(LogPrice, na.rm = TRUE),
-#       Max     = max(LogPrice, na.rm = TRUE),
-#       Sd      = sd(LogPrice, na.rm = TRUE),
-#       Skewness = e1071::skewness(LogPrice, na.rm = TRUE),
-#       Kurtosis = e1071::kurtosis(LogPrice, na.rm = TRUE),
-#       .groups = "drop"
-#     )
-# 
-#   return(stats)
-# }
-# 
-# test <- quarterly_desc_stats(spotprice_log,
-#                      start_hour = 12,
-#                      n_hours = 2)
-# 
-# save_quarterly_latex_table <- function(data, start_hour = 12, n_hours = 2,
-#                                        output_dir = "Tables") {
-# 
-#   table_stat <- quarterly_desc_stats(data,
-#                                      start_hour = start_hour,
-#                                      n_hours = n_hours)
-# 
-#   latex_table <- table_stat %>%
-#     select(QuarterLabel, Min, Mean, Median, Max, Sd, Skewness, Kurtosis) %>%
-#     pivot_longer(
-#       cols = -QuarterLabel,
-#       names_to = "Statistic",
-#       values_to = "Value"
-#     ) %>%
-#     pivot_wider(
-#       names_from = QuarterLabel,
-#       values_from = Value
-#     ) %>%
-#     mutate(Statistic = factor(
-#       Statistic,
-#       levels = c("Min", "Mean", "Median", "Max", "Sd", "Skewness", "Kurtosis")
-#     )) %>%
-#     arrange(Statistic)
-# 
-#   tex_output <- latex_table %>%
-#     kable(
-#       format = "latex",
-#       booktabs = TRUE,
-#       digits = 3,
-#       align = "c",
-#       caption = paste0(
-#         "Descriptive statistics by quarter-hour"
-#       ),
-#       label = paste0(
-#         "tab:descriptive_statistics_starthour_",
-#         start_hour
-#       )
-#     ) %>%
-#     kable_styling(position = "center", latex_options = "striped") %>%
-#     as.character()
-# 
-#   file_name <- paste0(
-#     output_dir,
-#     "/quarterly_descriptive_statistics_starthour_",
-#     start_hour,
-#     ".tex"
-#   )
-# 
-#   writeLines(tex_output, file_name)
-# 
-#   return(invisible(latex_table))
-# }
-# save_quarterly_latex_table(spotprice_log, start_hour = 12, n_hours = 2)
-# save_quarterly_latex_table(spotprice_log, start_hour = 14, n_hours = 2)
+
+
+# table
+quarterly_desc_stats <- function(data, start_hour = 4, n_hours = 2) {
+
+  end_hour <- start_hour + n_hours - 1
+
+  stats <- data %>%
+
+    # keep only selected hours
+    mutate(Hour = Quarter %/% 4) %>%
+    filter(Hour >= start_hour, Hour <= end_hour) %>%
+    group_by(Hour, QuarterLabel) %>%
+    summarise(
+      Min     = min(LogPrice, na.rm = TRUE),
+      Mean    = mean(LogPrice, na.rm = TRUE),
+      Median  = median(LogPrice, na.rm = TRUE),
+      Max     = max(LogPrice, na.rm = TRUE),
+      Sd      = sd(LogPrice, na.rm = TRUE),
+      Skewness = e1071::skewness(LogPrice, na.rm = TRUE),
+      Kurtosis = e1071::kurtosis(LogPrice, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  return(stats)
+}
+
+test <- quarterly_desc_stats(spotprice_panel,
+                     start_hour = 12,
+                     n_hours = 2)
+
+save_quarterly_latex_table <- function(data, start_hour = 12, n_hours = 2,
+                                       output_dir = "Tables") {
+
+  table_stat <- quarterly_desc_stats(data,
+                                     start_hour = start_hour,
+                                     n_hours = n_hours)
+
+  latex_table <- table_stat %>%
+    select(QuarterLabel, Min, Mean, Median, Max, Sd, Skewness, Kurtosis) %>%
+    pivot_longer(
+      cols = -QuarterLabel,
+      names_to = "Statistic",
+      values_to = "Value"
+    ) %>%
+    pivot_wider(
+      names_from = QuarterLabel,
+      values_from = Value
+    ) %>%
+    mutate(Statistic = factor(
+      Statistic,
+      levels = c("Min", "Mean", "Median", "Max", "Sd", "Skewness", "Kurtosis")
+    )) %>%
+    arrange(Statistic)
+
+  tex_output <- latex_table %>%
+    kable(
+      format = "latex",
+      booktabs = TRUE,
+      digits = 3,
+      align = "c",
+      caption = paste0(
+        "Descriptive statistics for the log prices by quarter-hour"
+      ),
+      label = paste0(
+        "tab:quarterly_descriptive_statistics_starthour_",
+        start_hour
+      )
+    ) %>%
+    kable_styling(position = "center", latex_options = "striped") %>%
+    as.character()
+
+  file_name <- paste0(
+    output_dir,
+    "/quarterly_descriptive_statistics_starthour_",
+    start_hour,
+    ".tex"
+  )
+
+  writeLines(tex_output, file_name)
+
+  return(invisible(latex_table))
+}
+save_quarterly_latex_table(spotprice_panel, start_hour = 12, n_hours = 2)
+save_quarterly_latex_table(spotprice_panel, start_hour = 14, n_hours = 2)
+
+mean(spotprice_panel$SpotPriceDKK <= 0, na.rm = TRUE)
+
+spotprice_panel %>%
+  summarise(
+    n_total = n(),
+    n_non_positive = sum(SpotPriceDKK <= 0, na.rm = TRUE),
+    share_non_positive = mean(SpotPriceDKK <= 0, na.rm = TRUE)
+  )
+
 
 #########################
 #### GET CONSUMPTION ####
