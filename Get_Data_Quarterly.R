@@ -73,7 +73,7 @@ oct1_start
 #spot price from 2025-10-01
 spotprice2 <- get_elspot("https://api.energidataservice.dk/dataset/DayAheadPrices", 
                          start = oct1_start,
-                         end   = today_end_str # "2026-02-23T00:00"
+                         end   = today_end_str 
 ) %>% 
   rename(HourUTC = TimeUTC,
          HourDK = TimeDK,
@@ -140,7 +140,7 @@ spotprice_panel <- spotprice_panel %>%
 
 ####################################
 #### SPOT PRICE ANALYSIS CHPT.2 ####
-####################################
+###################################
 hour <- 10
 
 spotprice_subset <- spotprice_panel %>%
@@ -192,8 +192,8 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK, color = Quarter_label))
     date_breaks = "1 month",
     date_labels = "%b\n%Y"
   ) +
-  theme_minimal()
-# ggsave("plots/Quarterly/spotprice_querterly_Time10_oneplot.png", width = 10, height = 6, dpi = 300)
+  theme_minimal(base_size = 20) 
+ggsave("plots/Quarterly/spotprice_querterly_Time10_oneplot.png", width = 10, height = 6, dpi = 300)
 
 
 # Plot: one line per weekday
@@ -214,7 +214,7 @@ ggplot(avg_quarterly, aes(x = Quarter, y = AvgPriceDKK, color = Weekday)) +
     color = "Weekday"
   ) +
   theme_minimal(base_size = 20)  # <- key change
-# ggsave("plots/Quarterly/spotprice_avg_quarterly_weekday.png", width = 10, height = 6, dpi = 600)
+ggsave("plots/Quarterly/spotprice_avg_quarterly_weekday.png", width = 10, height = 6, dpi = 600)
 
 
 # Plot: one line per month
@@ -235,7 +235,7 @@ ggplot(avg_quarterly_month, aes(x = Quarter, y = AvgPriceDKK, color = Month)) +
     color = "Month"
   ) +
   theme_minimal(base_size = 20)  # <- key change
-# ggsave("plots/Quarterly/spotprice_avg_quarterly_month.png", width = 10, height = 6, dpi = 600)
+ggsave("plots/Quarterly/spotprice_avg_quarterly_month.png", width = 10, height = 6, dpi = 600)
 
 # plot of log price
 plot_quarter_hours <- function(data, start_hour = 12) {
@@ -270,7 +270,7 @@ plot_quarter_hours <- function(data, start_hour = 12) {
 }
 
 plot_quarter_hours(spotprice_panel, start_hour = 12)
-# ggsave("plots/Quarterly/Quarter_hour_spotprice_4_4_plot.png", width = 10, height = 6, dpi = 600)
+ggsave("plots/Quarterly/Quarter_hour_spotprice_4_4_plot.png", width = 10, height = 6, dpi = 600)
 
 
 # table

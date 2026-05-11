@@ -5,14 +5,14 @@ source("Get_Data_Hourly.R")
 ###########################
 head(pdata)
 # Pooled Regression (PR)
-pr_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
+pr_model <- plm(LogPrice_asinh ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
                   factor(Hour) + Weekday + Month,
   data = pdata,
   model = "pooling"
 )
 
 # Fixed Effects (FE)
-fe_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
+fe_model <- plm(LogPrice_asinh ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
                   factor(Hour), 
   # You cannot include Weekday or Month in FE if they are constant within Date (they get absorbed).
   data = pdata,
@@ -20,7 +20,7 @@ fe_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower 
 )
 
 # Random Effects (RE)
-re_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower +
+re_model <- plm(LogPrice_asinh ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower +
                   Weekday + Month,
   data = pdata,
   model = "random"
@@ -38,6 +38,147 @@ plmtest(pr_model, type = "bp")
 # FE vs RE → Hausman test
 ## if p-val<0.05 => FE
 phtest(fe_model, re_model)
+
+###############
+#### Kilde ####
+###############
+# Select variables
+X <- panel_data %>%
+  select(ConsumptionkWh, OffshoreWindPower, OnshoreWindPower, SolarPower) %>%
+  na.omit()
+
+# Standardize + PCA
+X_scaled <- scale(X)
+
+pca_model <- prcomp(X_scaled, center = TRUE, scale. = TRUE)
+summary(pca_model)
+# This gives: Variance explained and Number of relevant factors
+# A common rule in factor models is to capture ~70–85% of total variance, so keeping factor 1 and 2 gives us 51%+29%=80% explained
+# Using too many factors can overfit and/or make economic interpretation weaker
+
+# Choose number of factors
+plot(pca_model, type = "l")   # Scree plot
+# from the plot we use 2 factors
+
+factors <- as.data.frame(pca_model$x[, 1:2])  # choose 2 factors
+colnames(factors) <- c("F1", "F2")
+
+panel_data <- panel_data %>%
+  bind_cols(factors)
+
+panel_data <- panel_data %>%
+  arrange(Hour, Date) %>%
+  # group_by(Hour) %>%
+  mutate(
+    F1_lag1 = lag(F1, 24),
+    F1_lag2 = lag(F1, 48),
+    F2_lag1 = lag(F2, 24),
+    F2_lag2 = lag(F2, 48)
+  ) %>%
+  ungroup()
+
+pdata <- pdata.frame(panel_data, index = c("Hour", "Date"))
+
+# Estimate Factor Model (Panel Regression) 
+#Fixed Effects Model: LogPrice_it=α_i+β_1 F1_it+β_2 F2_it +ϵ_it
+factor_model <- plm(
+  LogPrice_asinh ~ F1 + F2,
+  data = pdata,
+  model = "within"
+)
+
+summary(factor_model)
+
+# Add original variables (hybrid model)
+factor_model_full <- plm(
+  LogPrice_asinh ~ F1 + F2 + ConsumptionkWh +
+    OffshoreWindPower + OnshoreWindPower + SolarPower,
+  data = pdata,
+  model = "within"
+)
+
+summary(factor_model_full)
+
+# Create Result Table
+# library(stargazer)
+# stargazer(factor_model, factor_model_full,
+#           type = "latex",
+#           title = "Factor Model Results",
+#           column.labels = c("Factor Only", "Factor + Variables"),
+#           digits = 4)
+
+# Factor Interpretation Plot
+loadings <- as.data.frame(pca_model$rotation)
+
+print(loadings)
+
+# Plot factors over time
+panel_data %>%
+  ggplot(aes(x = Date, y = F1)) +
+  geom_line() +
+  labs(title = "Factor 1 over time")
+
+panel_data$pred <- predict(factor_model)
+
+ggplot(panel_data, aes(x = Date)) +
+  geom_line(aes(y = LogPrice_asinh, color = "Actual")) +
+  geom_line(aes(y = pred, color = "Predicted")) +
+  facet_wrap(~Hour) +
+  labs(title = "Actual vs Predicted Log Prices")
+
+rmse(panel_data$LogPrice_asinh, panel_data$pred)
+mae(panel_data$LogPrice_asinh, panel_data$pred)
+
+
+
+
+# Estimate Dynamic Factor Model
+dfm_model <- plm(
+  LogPrice_asinh ~ F1 + F1_lag1 + F1_lag2 +
+    F2 + F2_lag1 + F2_lag2,
+  data = pdata,
+  model = "within"
+)
+
+summary(dfm_model)
+
+# full DFM
+dfm_full <- plm(
+  LogPrice_asinh ~ F1 + F1_lag1 + F1_lag2 +
+    F2 + F2_lag1 + F2_lag2 +
+    ConsumptionkWh +
+    OffshoreWindPower +
+    OnshoreWindPower +
+    SolarPower,
+  data = pdata,
+  model = "within"
+)
+
+summary(dfm_full)
+
+panel_data$pred_dfm <- predict(dfm_full)
+
+ggplot(panel_data, aes(x = Date)) +
+  geom_line(aes(y = LogPrice_asinh, color = "Actual")) +
+  geom_line(aes(y = pred_dfm, color = "DFM")) +
+  facet_wrap(~Hour) +
+  labs(title = "Dynamic Factor Model vs Actual Prices")
+
+
+panel_data$pred_static <- predict(factor_model_full)
+
+ggplot(panel_data, aes(x = Date)) +
+  geom_line(aes(y = LogPrice_asinh, color = "Actual")) +
+  geom_line(aes(y = pred_static, color = "Static")) +
+  geom_line(aes(y = pred_dfm, color = "Dynamic")) +
+  facet_wrap(~Hour) +
+  labs(title = "Model Comparison")
+
+
+rmse(panel_data$LogPrice_asinh, panel_data$pred_static)
+rmse(panel_data$LogPrice_asinh, panel_data$pred_dfm)
+
+
 
 ###########################
 #### DYAMIC PANEL DATA ####

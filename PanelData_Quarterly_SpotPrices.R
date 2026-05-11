@@ -82,26 +82,28 @@ cor(pdata_model %>% select(log_consumption, log_offshore, log_onshore, log_solar
 #### PANEL DATA STATIC ####
 ###########################
 # Pooled Regression (PR)
-pr_model <- plm(SpotPriceDKK ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
+pr_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
                   factor(Quarter) + Weekday + Month,
                 data = pdata,
                 model = "pooling"
 )
-
+summary(pr_model)
 # Fixed Effects (FE)
-fe_model <- plm(SpotPriceDKK ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
+fe_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
                   factor(Quarter), 
                 # You cannot include Weekday or Month in FE if they are constant within Date (they get absorbed).
                 data = pdata,
                 model = "within"
 )
+summary(fe_model)
 
 # Random Effects (RE)
-re_model <- plm(SpotPriceDKK ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower +
+re_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower +
                   Weekday + Month,
                 data = pdata,
                 model = "random"
 )
+summary(re_model)
 
 #### TEST ####
 # FE vs PR → F-test 
@@ -121,7 +123,7 @@ phtest(fe_model, re_model)
 ###########################
 # Dynamic fixed effects time-series cross-section model
 dyn_fe_model <- plm(
-  SpotPriceDKK ~ lag(SpotPriceDKK, 1) + lag(SpotPriceDKK, 7) + lag(SpotPriceDKK, 2) + 
+  LogPrice ~ lag(LogPrice, 1) + lag(LogPrice, 7) + lag(LogPrice, 2) + 
     ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + Quarter,
   data = pdata,
   model = "within"
