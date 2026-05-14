@@ -40,7 +40,7 @@ panel_latex_table <- function(models,
                               include_intercept = TRUE,
                               weekday_effects = c("No", "No", "Yes"),
                               month_effects   = c("No", "No", "Yes"),
-                              caption = "Comparison of Panel Data Models for Electricity Prices") {
+                              caption = "Comparison of Panel Data Models for Spot Prices (Hourly)") {
   
   # ---------- tidy ----------
   tidy_list <- map2(models, model_names, ~{

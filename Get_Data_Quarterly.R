@@ -1,3 +1,4 @@
+start_time <- Sys.time()
 library(httr)
 library(jsonlite)
 library(dplyr)
@@ -8,6 +9,14 @@ library(ggplot2)
 library(e1071)
 library(knitr)
 library(kableExtra)
+library(Metrics)
+library(xtable)
+library(modelsummary)
+library(moments)
+library(broom)
+library(purrr)
+library(stringr)
+
 setwd("~/Desktop/P10")
 ########################
 #### GET SPOT PRICE ####
@@ -77,8 +86,8 @@ spotprice2 <- get_elspot("https://api.energidataservice.dk/dataset/DayAheadPrice
 ) %>% 
   rename(HourUTC = TimeUTC,
          HourDK = TimeDK,
-         SpotPriceDKK = DayAheadPriceDKK,
-         SpotPriceEUR = DayAheadPriceEUR)
+         SpotPriceDKK = DayAheadPriceDKK#, SpotPriceEUR = DayAheadPriceEUR
+         )
 
 # Ensure HourDK column are datetime
 spotprice2 <- spotprice2 %>%
@@ -100,7 +109,7 @@ spotprice_panel <- spotprice_all %>%
   group_by(Date, Quarter) %>%
   summarise(
     SpotPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-    SpotPriceEUR = mean(SpotPriceEUR, na.rm = TRUE),
+    #SpotPriceEUR = mean(SpotPriceEUR, na.rm = TRUE),
     Weekday = first(Weekday),
     Month = first(Month),
     .groups = "drop"
@@ -122,7 +131,7 @@ spotprice_panel <- spotprice_panel %>%
 spotprice_panel <- spotprice_panel %>%
   group_by(Date) %>%
   arrange(Quarter) %>%
-  fill(SpotPriceDKK, SpotPriceEUR, .direction = "down") %>%
+  fill(SpotPriceDKK, .direction = "down") %>%
   ungroup()
 
 # log spotprice
@@ -146,6 +155,10 @@ spotprice_panel <- spotprice_panel %>%
     
     LagLogPrice_1 = lag(LogPrice, 1),
     LagLogPrice_7 = lag(LogPrice, 7),
+    
+    LagLogPrice_100_1 = lag(LogPrice_100, 1),
+    LagLogPrice_100_7 = lag(LogPrice_100, 7),
+    
     
     LagLogPrice_asinh_1 = lag(LogPrice_asinh, 1),
     LagLogPrice_asinh_7 = lag(LogPrice_asinh, 7)
@@ -393,7 +406,7 @@ quarterly_desc_stats <- function(data, spotprice, start_hour = 00, n_hours = 24)
   
   return(stats)
 }
-
+test <- quarterly_desc_stats(spotprice_panel, "SpotPriceDKK")
 test_log_1 <- quarterly_desc_stats(spotprice_panel, "LogPrice")
 test_log_100 <- quarterly_desc_stats(spotprice_panel, "LogPrice_100")
 test_asinh <- quarterly_desc_stats(spotprice_panel, "LogPrice_asinh")
@@ -734,6 +747,9 @@ check_panel(panel_data, "SolarPower")
 #### PANEL DATA ####
 ####################
 panel_data <- panel_data %>%
-  mutate(Date = as.factor(Date))  # important for FE
+  mutate(Date = as.Date(Date))
 
 pdata <- pdata.frame(panel_data, index = c("Quarter", "Date"))
+
+end_time <- Sys.time()
+cat(end_time - start_time)

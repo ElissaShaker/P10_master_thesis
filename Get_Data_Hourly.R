@@ -14,6 +14,8 @@ library(moments)
 library(broom)
 library(purrr)
 library(stringr)
+library(e1071)
+library(knitr)
 
 setwd("~/Desktop/P10")
 ########################
