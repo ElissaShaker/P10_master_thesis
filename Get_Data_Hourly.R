@@ -9,6 +9,12 @@ library(ggplot2)
 library(kableExtra)
 library(Metrics)
 library(xtable)
+library(modelsummary)
+library(moments)
+library(broom)
+library(purrr)
+library(stringr)
+
 setwd("~/Desktop/P10")
 ########################
 #### GET SPOT PRICE ####
@@ -64,8 +70,8 @@ spotprice2 <- get_elspot("https://api.energidataservice.dk/dataset/DayAheadPrice
 ) %>% 
   rename(HourUTC = TimeUTC,
          HourDK = TimeDK,
-         SpotPriceDKK = DayAheadPriceDKK,
-         SpotPriceEUR = DayAheadPriceEUR)
+         SpotPriceDKK = DayAheadPriceDKK #, SpotPriceEUR = DayAheadPriceEUR
+         )
 
 # make spotprice2 to hourly data
 spotprice2_hourly <- spotprice2 %>%
@@ -87,11 +93,14 @@ spotprice_panel <- spotprice_all %>%
   group_by(Date, Hour) %>%  # handle repeated hours (DST)
   summarise(
     SpotPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-    SpotPriceEUR = mean(SpotPriceEUR, na.rm = TRUE),
+    #SpotPriceEUR = mean(SpotPriceEUR, na.rm = TRUE),
     Weekday = first(Weekday),  # keep Weekday
     Month = first(Month),      # keep Month
     .groups = "drop"
   )
+
+spotprice_panel <- spotprice_panel %>%
+  filter(Date >= as.Date("2023-01-01"))
 
 # dubletter for dag med 23 timer elrpis (vinter til sommertid)
 spotprice_panel <- spotprice_panel %>%
@@ -117,7 +126,7 @@ spotprice_panel <- spotprice_panel %>%
 spotprice_panel <- spotprice_panel %>%
   group_by(Date) %>%
   arrange(Hour) %>%
-  fill(SpotPriceDKK, SpotPriceEUR, .direction = "down") %>%
+  fill(SpotPriceDKK, .direction = "down") %>%
   ungroup()
 
 spotprice_panel <- spotprice_panel %>%
@@ -125,6 +134,8 @@ spotprice_panel <- spotprice_panel %>%
   group_by(Hour) %>%
   mutate(
     LogPrice = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 1),
+    LogPrice_100 = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 100),
+    
     LagLogPrice_1 = lag(LogPrice, 1),
     LagLogPrice_7 = lag(LogPrice, 7),
     
@@ -134,76 +145,10 @@ spotprice_panel <- spotprice_panel %>%
   ) %>%
   ungroup()
 
+
 ####################################
 #### SPOT PRICE ANALYSIS CHPT.2 ####
 ####################################
-ggplot(spotprice_panel, aes(sample = SpotPriceDKK)) +
-  stat_qq(color = "blue") +
-  stat_qq_line(color = "red") +
-  ggtitle("QQ Plot: SpotPriceDKK") +
-  theme_minimal(base_size = 20) 
-ggsave("plots/Hourly/qqplot_spotprice.png", width = 6, height = 6, dpi = 600)
-
-# QQ plot for LogPrice (shifted log)
-ggplot(spotprice_panel, aes(sample = LogPrice)) +
-  stat_qq(color = "blue") +
-  stat_qq_line(color = "red") +
-  ggtitle("QQ Plot: LogPrice") +
-  theme_minimal(base_size = 20) 
-ggsave("plots/Hourly/qqplot_logPrice.png", width = 6, height = 6, dpi = 600)
-
-
-# QQ plot for LogPrice_asinh (asinh transform)
-ggplot(spotprice_panel, aes(sample = LogPrice_asinh)) +
-  stat_qq(color = "blue") +
-  stat_qq_line(color = "red") +
-  ggtitle("QQ Plot: LogPrice_asinh") +
-  theme_minimal(base_size = 20) 
-ggsave("plots/Hourly/qqplot_LogPrice_asinh.png", width = 6, height = 6, dpi = 600)
-
-
-stats_summary <- data.frame(
-  Variable = c("SpotPriceDKK", "LogPrice", "LogPrice_asinh"),
-  
-  Skewness = c(
-    skewness(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
-    skewness(spotprice_panel$LogPrice, na.rm = TRUE),
-    skewness(spotprice_panel$LogPrice_asinh, na.rm = TRUE)
-  ),
-  
-  Kurtosis = c(
-    kurtosis(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
-    kurtosis(spotprice_panel$LogPrice, na.rm = TRUE),
-    kurtosis(spotprice_panel$LogPrice_asinh, na.rm = TRUE)
-  )
-)
-
-stats_summary
-latex_table <- xtable(stats_summary,
-                      caption = "Skewness and Kurtosis of Price Transformations",
-                      label = "tab:skew_kurt")
-
-tex_output <- stats_summary %>%
-  kable(
-    format = "latex",
-    booktabs = TRUE,
-    digits = 3,
-    align = "c",
-    caption = "Skewness and Kurtosis of Price Transformations",
-    label = "tab:skew_kurt"
-  ) %>%
-  kable_styling(
-    position = "center",
-    latex_options = c("striped")
-  ) %>%
-  as.character()
-
-writeLines(
-  tex_output,
-  "Tables/hourly_skewness_kurtosis_table.tex"
-)
-
-#########
 spotprice_subset <- spotprice_panel %>%
   filter(Hour %in% c(0, 6, 12, 18)) #%>%
   # mutate(
@@ -231,9 +176,6 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
 # ggsave("plots/Hourly/spotprice_hourly_Time0_8_16.png", width = 10, height = 6, dpi = 300)
 # ggsave("plots/Hourly/spotprice_hourly_Time0_8_16_2023.png", width = 10, height = 6, dpi = 300)
 
-spotprice_panel <- spotprice_panel %>%
-  filter(Date >= as.Date("2023-01-01"))
-
 # Compute average price per Hour and Weekday
 avg_hourly <- spotprice_panel %>%
   group_by(Weekday, Hour) %>%
@@ -253,7 +195,7 @@ ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
     color = "Weekday"
   ) +
   theme_minimal(base_size = 20)  # <- key change
-ggsave("plots/Hourly/spotprice_avg_hourly_weekday.png", width = 10, height = 6, dpi = 600)
+# ggsave("plots/Hourly/spotprice_avg_hourly_weekday.png", width = 10, height = 6, dpi = 600)
 
 
 avg_hourly_month <- spotprice_panel %>%
@@ -274,101 +216,200 @@ ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
     color = "Month"
   ) +
   theme_minimal(base_size = 20)  # <- key change
-ggsave("plots/Hourly/spotprice_avg_hourly_month.png", width = 10, height = 6, dpi = 600)
+# ggsave("plots/Hourly/spotprice_avg_hourly_month.png", width = 10, height = 6, dpi = 600)
 
+########
+# tables sum
+plot_qq <- function(data, var, title = NULL, save_path = NULL,
+                    color_points = "blue", color_line = "red",
+                    base_size = 20, width = 6, height = 6, dpi = 600) {
 
-# table
-quarterly_desc_stats <- function(data, start_hour = 4, n_hours = 2) {
+  p <- ggplot(data, aes(sample = {{ var }})) +
+    stat_qq(color = color_points) +
+    stat_qq_line(color = color_line) +
+    ggtitle(ifelse(is.null(title), deparse(substitute(var)), title)) +
+    theme_minimal(base_size = base_size)
+
+  if (!is.null(save_path)) {
+    ggsave(save_path, plot = p, width = width, height = height, dpi = dpi)
+  }
+
+  return(p)
+}
+
+plot_qq(spotprice_panel, SpotPriceDKK,
+        save_path = "plots/Hourly/qqplot_spotprice.png")
+
+plot_qq(spotprice_panel, LogPrice,
+        save_path = "plots/Hourly/qqplot_logPrice.png")
+
+plot_qq(spotprice_panel, LogPrice_100,
+        save_path = "plots/Hourly/qqplot_logPrice_100.png")
+
+plot_qq(spotprice_panel, LogPrice_asinh,
+        save_path = "plots/Hourly/qqplot_logPrice_asinh.png")
+
+stats_summary <- data.frame(
+  Variable = c("SpotPriceDKK", "LogPrice", "LogPrice_100", "LogPrice_asinh"),
+  Skewness = c(
+    e1071::skewness(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
+    e1071::skewness(spotprice_panel$LogPrice, na.rm = TRUE),
+    e1071::skewness(spotprice_panel$LogPrice_100, na.rm = TRUE),
+    e1071::skewness(spotprice_panel$LogPrice_asinh, na.rm = TRUE)
+  ),
+  Kurtosis = c(
+    e1071::kurtosis(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
+    e1071::kurtosis(spotprice_panel$LogPrice, na.rm = TRUE),
+    e1071::kurtosis(spotprice_panel$LogPrice_100, na.rm = TRUE),
+    e1071::kurtosis(spotprice_panel$LogPrice_asinh, na.rm = TRUE)
+  )
+)
+
+stats_summary
+
+tex_output <- stats_summary %>%
+  kable(
+    format = "latex",
+    booktabs = TRUE,
+    digits = 3,
+    align = "c",
+    caption = "Skewness and Kurtosis of Price Transformations",
+    label = "tab:skew_kurt"
+  ) %>%
+  kable_styling(
+    position = "center",
+    latex_options = c("striped")
+  ) %>%
+  as.character()
+
+# writeLines(
+#   tex_output,
+#   "Tables/hourly_skewness_kurtosis_table.tex"
+# )
+
+########
+# tables each hour
+quarterly_desc_stats <- function(data, spotprice, start_hour = 00, n_hours = 24) {
 
   end_hour <- start_hour + n_hours - 1
 
   stats <- data %>%
-
-    # keep only selected hours
-    filter(Hour >= start_hour, Hour <= end_hour) %>%
-    group_by(Hour) %>%
-    summarise(
-      Min     = min(LogPrice, na.rm = TRUE),
-      Mean    = mean(LogPrice, na.rm = TRUE),
-      Median  = median(LogPrice, na.rm = TRUE),
-      Max     = max(LogPrice, na.rm = TRUE),
-      Sd      = sd(LogPrice, na.rm = TRUE),
-      Skewness = e1071::skewness(LogPrice, na.rm = TRUE),
-      Kurtosis = e1071::kurtosis(LogPrice, na.rm = TRUE),
+    dplyr::filter(Hour >= start_hour, Hour <= end_hour) %>%
+    dplyr::group_by(Hour) %>%
+    dplyr::summarise(
+      Min      = min(.data[[spotprice]], na.rm = TRUE),
+      Mean     = mean(.data[[spotprice]], na.rm = TRUE),
+      Median   = median(.data[[spotprice]], na.rm = TRUE),
+      Max      = max(.data[[spotprice]], na.rm = TRUE),
+      Sd       = sd(.data[[spotprice]], na.rm = TRUE),
+      Skewness = e1071::skewness(.data[[spotprice]], type = 2, na.rm = TRUE),
+      Kurtosis = e1071::kurtosis(.data[[spotprice]], type = 2, na.rm = TRUE),
       .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      Min = round(Min, 2),
+      Max = round(Max, 2),
+      Mean = round(Mean, 3),
+      Median = round(Median, 3),
+      Sd = round(Sd, 3),
+      Skewness = round(Skewness, 2),
+      Kurtosis = round(Kurtosis, 2)
     )
 
   return(stats)
 }
 
-test <- quarterly_desc_stats(spotprice_panel,
-                             start_hour = 12,
-                             n_hours = 2)
+test_log_100 <- quarterly_desc_stats(spotprice_panel, "LogPrice_100")
 
-save_quarterly_latex_table <- function(data, start_hour = 12, n_hours = 2,
-                                       output_dir = "Tables") {
+test_asinh <- quarterly_desc_stats(spotprice_panel, "LogPrice_asinh")
 
-  table_stat <- quarterly_desc_stats(data,
+save_quarterly_latex_table_single <- function(data, spotprice,
+                                              start_hour = 0,
+                                              n_hours = 24,
+                                              output_dir = "Tables") {
+  table_stat <- quarterly_desc_stats(data, spotprice,
                                      start_hour = start_hour,
                                      n_hours = n_hours)
 
-  latex_table <- table_stat %>%
-    select(Hour, Min, Mean, Median, Max, Sd, Skewness, Kurtosis) %>%
-    pivot_longer(
-      cols = -Hour,
-      names_to = "Statistic",
-      values_to = "Value"
-    ) %>%
-    pivot_wider(
-      names_from = Hour,
-      values_from = Value
-    ) %>%
-    mutate(Statistic = factor(
-      Statistic,
-      levels = c("Min", "Mean", "Median", "Max", "Sd", "Skewness", "Kurtosis")
-    )) %>%
-    arrange(Statistic)
+  create_block <- function(df_subset) {
+    df_subset %>%
+      mutate(Hour_label = sprintf("%02d:00", Hour)) %>%
+      select(Hour_label, Min, Mean, Median, Max, Sd, Skewness, Kurtosis) %>%
+      pivot_longer(
+        cols = -Hour_label,
+        names_to = "Statistic",
+        values_to = "Value"
+      ) %>%
+      pivot_wider(
+        names_from = Hour_label,
+        values_from = Value
+      ) %>%
+      mutate(Statistic = factor(
+        Statistic,
+        levels = c("Min", "Mean", "Median", "Max", "Sd", "Skewness", "Kurtosis")
+      )) %>%
+      arrange(Statistic)
+  }
 
-  tex_output <- latex_table %>%
-    kable(
-      format = "latex",
-      booktabs = TRUE,
-      digits = 3,
-      align = "c",
-      caption = paste0(
-        "Descriptive statistics for the log prices by hour"
-      ),
-      label = paste0(
-        "tab:hourly_descriptive_statistics_starthour_",
-        start_hour
-      )
-    ) %>%
-    kable_styling(position = "center", latex_options = "striped") %>%
-    as.character()
+  block1 <- create_block(filter(table_stat, Hour %in% 0:7))
+  block2 <- create_block(filter(table_stat, Hour %in% 8:15))
+  block3 <- create_block(filter(table_stat, Hour %in% 16:23))
 
-  file_name <- paste0(
-    output_dir,
-    "/hourly_descriptive_statistics_starthour_",
-    start_hour,
-    ".tex"
+  # Convert to LaTeX rows ONLY (remove tabular wrapper)
+  get_rows <- function(block) {
+    kable(block,
+          format = "latex",
+          booktabs = TRUE,
+          digits = 3,
+          align = "c") %>%
+      as.character() %>%
+      gsub(".*\\\\toprule", "", .) %>%     # remove header start
+      gsub("\\\\bottomrule.*", "", .)      # remove footer
+  }
+
+  rows1 <- get_rows(block1)
+  rows2 <- get_rows(block2)
+  rows3 <- get_rows(block3)
+
+  # Column format (adjust based on max columns = 10 columns: stat + 9 hours)
+  col_format <- paste0("l", paste(rep("c", 9), collapse = ""))
+
+  price_name <- dplyr::case_when(
+    spotprice == "LogPrice" ~ "shifted log prices (+1)",
+    spotprice == "LogPrice_100" ~ "shifted log prices (+100)",
+    spotprice == "LogPrice_asinh" ~ "asinh-transformed log prices",
+    TRUE ~ spotprice
   )
+  caption <- paste0("Descriptive statistics for ", tolower(price_name), " by hour")
+  label <- paste0("tab:hourly_descriptive_statistics_", spotprice)
 
-  writeLines(tex_output, file_name)
+  latex_output <- paste0(
+    "\\begin{table}[h]\n\\centering\n",
+    "\\caption{", caption, "}\n",
+    "\\label{", label, "}\n",
+    "\\begin{tabular}{", col_format, "}\n",
+    "\\toprule\n",
 
-  return(invisible(latex_table))
+    rows1,
+    "\\midrule\n",
+    rows2,
+    "\\midrule\n",
+    rows3,
+
+    "\\bottomrule\n",
+    "\\end{tabular}\n",
+    "\\end{table}"
+  )
+  writeLines(latex_output,
+             paste0(output_dir, "/hourly_descriptive_statistics_", spotprice, ".tex"))
+  invisible(NULL)
 }
-save_quarterly_latex_table(spotprice_panel, start_hour = 12, n_hours = 2)
 
-# 
-# #########################
-# mean(spotprice_panel$SpotPriceDKK <= 0, na.rm = TRUE)
-# 
-# spotprice_panel %>%
-#   summarise(
-#     n_total = n(),
-#     n_non_positive = sum(SpotPriceDKK <= 0, na.rm = TRUE),
-#     share_non_positive = mean(SpotPriceDKK <= 0, na.rm = TRUE)
-#   )
+save_quarterly_latex_table_single(spotprice_panel, "LogPrice")
+save_quarterly_latex_table_single(spotprice_panel, "LogPrice_100")
+save_quarterly_latex_table_single(spotprice_panel, "LogPrice_asinh")
+
+
 
 #########################
 #### GET CONSUMPTION ####
