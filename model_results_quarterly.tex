@@ -1,0 +1,41 @@
+\begin{table}[h]
+\centering
+\caption{Comparison of Panel Data Models for Spot Prices (Quarterly)}
+\label{tab:model_results_quarterly}
+\begin{tabular}{lccc}
+\toprule
+ & \textbf{Pooled OLS} & \textbf{Fixed Effects} & \textbf{Random Effects} \\
+\midrule
+
+Consumption_Total & 1.302e-07*** & 7.867e-08*** & -7.858e-08*** \\
+                   & (3.134e-09) & (3.604e-09) & (5.196e-09) \\
+
+Offshore Wind (DK1) & 3.410e-05*** & 3.526e-05*** & 3.069e-06 \\
+                   & (7.717e-06) & (7.359e-06) & (7.056e-06) \\
+
+Offshore Wind (DK2) & 3.309e-04*** & 3.123e-04*** & 3.242e-04*** \\
+                   & (1.325e-05) & (1.266e-05) & (1.189e-05) \\
+
+Onshore Wind (DK1) & -4.557e-05*** & -3.715e-05*** & -2.906e-05*** \\
+                   & (5.052e-06) & (4.825e-06) & (4.600e-06) \\
+
+Onshore Wind (DK2) & -1.699e-03*** & -1.634e-03*** & -1.455e-03*** \\
+                   & (3.324e-05) & (3.178e-05) & (3.037e-05) \\
+
+Solar Power (DK1) & -1.187e-05 & -2.738e-05* & -2.109e-05* \\
+                   & (1.134e-05) & (1.108e-05) & (1.036e-05) \\
+
+Solar Power (DK2) & -9.674e-04*** & -9.427e-04*** & -9.132e-04*** \\
+                   & (2.836e-05) & (2.721e-05) & (2.591e-05) \\
+
+\midrule
+Weekday Effects & No & No & Yes \\
+Month Effects & No & No & Yes \\
+
+\midrule
+$R^2$ & 0.424 & 0.41 & 0.501 \\
+Adj. $R^2$ & 0.424 & 0.407 & 0.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
