@@ -900,6 +900,18 @@ check_panel(panel_data, "SolarPower")
 panel_data <- panel_data %>%
   mutate(Date = as.Date(as.character(Date)))
 
+panel_data <- panel_data %>%
+  mutate(
+    Date = as.Date(as.character(Date)),
+    
+    Consumption_Total =
+      Consumption_HS +
+      Consumption_MJ +
+      Consumption_NJ +
+      Consumption_SJ +
+      Consumption_SJL
+  )
+
 cutoff <- as.Date("2026-05-01")
 
 train_data <- panel_data %>% filter(Date <= cutoff)
