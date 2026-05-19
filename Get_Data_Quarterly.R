@@ -16,6 +16,8 @@ library(moments)
 library(broom)
 library(purrr)
 library(stringr)
+library(bestNormalize)
+
 
 setwd("~/Desktop/P10")
 ########################
@@ -167,19 +169,34 @@ spotprice_panel <- spotprice_panel %>%
 #   ) %>%
 #   ungroup()
 
+yj <- yeojohnson(spotprice_panel$SpotPriceDKK)
+
 spotprice_panel <- spotprice_panel %>%
   arrange(Date, Quarter) %>%
   mutate(
     LogPrice = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 1),
     LogPrice_100 = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 100),
     LogPrice_asinh = log(SpotPriceDKK + sqrt(SpotPriceDKK^2 + 1)),
+    YJPrice = predict(yj)
   )
-
 head(spotprice_panel)
 names(spotprice_panel)
 ####################################
 #### SPOT PRICE ANALYSIS CHPT.2 ####
-###################################
+####################################
+vars <- c("SpotPriceDKK", "LogPrice", "LogPrice_100", "LogPrice_asinh", "YJPrice")
+
+for (v in vars) {
+  p <- ggplot(spotprice_panel, aes(x = .data[[v]])) +
+    geom_histogram(bins = 50) +
+    ggtitle(v)
+  
+  ggsave(
+    paste0("plots/Quarterly/querterly_historgram_", v, ".png"),
+    p, width = 10, height = 6, dpi = 300
+  )
+}
+
 hour <- 10
 
 spotprice_subset <- spotprice_panel %>%
@@ -344,20 +361,26 @@ plot_qq(spotprice_panel, LogPrice_100,
 plot_qq(spotprice_panel, LogPrice_asinh,
         save_path = "plots/Quarterly/qqplot_logPrice_asinh.png")
 
+plot_qq(spotprice_panel, YJPrice,
+        save_path = "plots/Quarterly/qqplot_YJPrice.png")
+
 
 stats_summary <- data.frame(
-  Variable = c("SpotPriceDKK", "LogPrice", "LogPrice_100", "LogPrice_asinh"),
+  Variable = c("SpotPriceDKK", "LogPrice", "LogPrice_100", "LogPrice_asinh", "YJPrice"),
   Skewness = c(
     e1071::skewness(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
     e1071::skewness(spotprice_panel$LogPrice, na.rm = TRUE),
     e1071::skewness(spotprice_panel$LogPrice_100, na.rm = TRUE),
-    e1071::skewness(spotprice_panel$LogPrice_asinh, na.rm = TRUE)
+    e1071::skewness(spotprice_panel$LogPrice_asinh, na.rm = TRUE),
+    e1071::skewness(spotprice_panel$YJPrice, na.rm = TRUE)
+    
   ),
   Kurtosis = c(
     e1071::kurtosis(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
     e1071::kurtosis(spotprice_panel$LogPrice, na.rm = TRUE),
     e1071::kurtosis(spotprice_panel$LogPrice_100, na.rm = TRUE),
-    e1071::kurtosis(spotprice_panel$LogPrice_asinh, na.rm = TRUE)
+    e1071::kurtosis(spotprice_panel$LogPrice_asinh, na.rm = TRUE),
+    e1071::kurtosis(spotprice_panel$YJPrice, na.rm = TRUE)
   )
 )
 
@@ -420,6 +443,8 @@ test <- quarterly_desc_stats(spotprice_panel, "SpotPriceDKK")
 test_log_1 <- quarterly_desc_stats(spotprice_panel, "LogPrice")
 test_log_100 <- quarterly_desc_stats(spotprice_panel, "LogPrice_100")
 test_asinh <- quarterly_desc_stats(spotprice_panel, "LogPrice_asinh")
+test_YJPrice <- quarterly_desc_stats(spotprice_panel, "YJPrice")
+
 
 save_quarterly_latex_table_single <- function(data, spotprice,
                                               start_index = 21,
@@ -520,6 +545,7 @@ save_quarterly_latex_table_single <- function(data, spotprice,
 save_quarterly_latex_table_single(spotprice_panel, "LogPrice")
 save_quarterly_latex_table_single(spotprice_panel, "LogPrice_100")
 save_quarterly_latex_table_single(spotprice_panel, "LogPrice_asinh")
+save_quarterly_latex_table_single(spotprice_panel, "YJPrice")
 
 ###################
 mean(spotprice_panel$SpotPriceDKK <= 0, na.rm = TRUE)
@@ -536,13 +562,37 @@ spotprice_panel %>%
 #### GET CONSUMPTION ####
 #########################
 # https://www.energidataservice.dk/dso-electricity/ConsumptionConsumerCategoryHour
-get_consumption <- function(base, start = NULL, region = "Region Nordjylland") {
+# get_consumption_old <- function(base, start = NULL, region = "Region Nordjylland") {
+#   query <- list()
+#   
+#   if (!is.null(start)) query$start <- start
+#   
+#   if (!is.null(region)) {
+#     query$filter <- sprintf('{"RegionName":"%s"}', region)
+#   }
+#   
+#   res <- GET(base, query = query)
+#   stop_for_status(res)
+#   
+#   data <- content(res, as = "text", encoding = "UTF-8")
+#   parsed <- fromJSON(data, flatten = TRUE)
+#   
+#   return(as_tibble(parsed$records))
+# }
+# # Brug funktionen:
+# get_consumption_old <- get_consumption_old("https://api.energidataservice.dk/dataset/ConsumptionConsumerCategoryHour?",
+#                                start = oct1_start)%>% 
+#   rename(HourUTC = TimeUTC,
+#          HourDK = TimeDK) %>%
+#   mutate(HourDK = ymd_hms(HourDK)) %>%  
+#   select(HourDK, ConsumptionkWh)
+#####
+get_consumption <- function(base, start = NULL) {
+  
   query <- list()
   
-  if (!is.null(start)) query$start <- start
-  
-  if (!is.null(region)) {
-    query$filter <- sprintf('{"RegionName":"%s"}', region)
+  if (!is.null(start)) {
+    query$start <- start
   }
   
   res <- GET(base, query = query)
@@ -551,16 +601,49 @@ get_consumption <- function(base, start = NULL, region = "Region Nordjylland") {
   data <- content(res, as = "text", encoding = "UTF-8")
   parsed <- fromJSON(data, flatten = TRUE)
   
-  return(as_tibble(parsed$records))
+  consumption <- as_tibble(parsed$records) %>%
+    
+    rename(
+      HourUTC = TimeUTC,
+      HourDK  = TimeDK
+    ) %>%
+    
+    mutate(
+      HourDK = ymd_hms(HourDK),
+      
+      RegionCode = case_when(
+        RegionName == "Region Nordjylland" ~ "NJ",
+        RegionName == "Region Midtjylland" ~ "MJ",
+        RegionName == "Region Syddanmark" ~ "SJ",
+        RegionName == "Region Hovedstaden" ~ "HS",
+        RegionName == "Region Sjælland" ~ "SJL",
+        TRUE ~ RegionName
+      )
+    ) %>%
+    
+    # IMPORTANT: remove internal duplication (consumer categories etc.)
+    group_by(HourDK, RegionCode) %>%
+    summarise(
+      ConsumptionkWh = sum(ConsumptionkWh, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    
+    # wide format: one column per region
+    pivot_wider(
+      names_from = RegionCode,
+      values_from = ConsumptionkWh,
+      names_prefix = "Consumption_"
+    ) %>%
+    
+    arrange(HourDK)
+  
+  return(consumption)
 }
 
-# Brug funktionen:
-consumption <- get_consumption("https://api.energidataservice.dk/dataset/ConsumptionConsumerCategoryHour?",
-                               start = oct1_start)%>% 
-  rename(HourUTC = TimeUTC,
-         HourDK = TimeDK) %>%
-  mutate(HourDK = ymd_hms(HourDK)) %>%  
-  select(HourDK, ConsumptionkWh)
+consumption <- get_consumption(
+  "https://api.energidataservice.dk/dataset/ConsumptionConsumerCategoryHour?",
+  start = oct1_start
+)
 
 consumption_q <- consumption %>%
   # for each row, create 4 rows
@@ -579,15 +662,9 @@ consumption_q_panel <- consumption_q %>%
     Minute = minute(HourDK),
     Quarter = Hour * 4 + Minute %/% 15,   # 0–95
     Weekday = wday(Date, label = TRUE, week_start = 1),
-    Month = month(Date, label = TRUE, abbr = TRUE)
-  ) %>%
-  group_by(Date, Quarter) %>%
-  summarise(
-    ConsumptionkWh = mean(ConsumptionkWh, na.rm = TRUE),
+    Month = month(Date, label = TRUE, abbr = TRUE),
     Weekday = first(Weekday),
-    Month = first(Month),
-    .groups = "drop"
-  )
+    Month = first(Month))
 
 # dubletter eller missing (vinter til sommertid)
 consumption_q_panel %>%
@@ -605,7 +682,7 @@ consumption_q_panel <- consumption_q_panel %>%
 consumption_q_panel <- consumption_q_panel %>%
   group_by(Date) %>%
   arrange(Quarter) %>%
-  fill(ConsumptionkWh, .direction = "down") %>%
+  fill(Consumption_HS, Consumption_MJ, Consumption_NJ, Consumption_SJ, Consumption_SJL, .direction = "down") %>%
   ungroup()
 
 #################
@@ -613,17 +690,39 @@ consumption_q_panel <- consumption_q_panel %>%
 #################
 # https://energidataservice.dk/tso-electricity/Forecasts_5Min
 # 3 variables for wind in 5 min interval agregate to 15 min interval with avg
-get_wind <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
+# get_wind <- function(base, start = NULL, end = NULL, pricearea) {
+#   
+#   query <- list()
+#   
+#   if (!is.null(start)) query$start <- start
+#   if (!is.null(end))   query$end   <- end
+#   
+#   # force PriceArea filter (default DK1)
+#   if (!is.null(pricearea)) {
+#     query$filter <- sprintf('{"PriceArea":"%s"}', pricearea)
+#   }
+#   
+#   res <- GET(base, query = query)
+#   stop_for_status(res)
+#   
+#   parsed <- fromJSON(content(res, "text", encoding = "UTF-8"), flatten = TRUE)
+#   
+#   as_tibble(parsed$records)
+# }
+# 
+# wind <- get_wind(
+#   base = "https://api.energidataservice.dk/dataset/ElectricityProdex5MinRealtime?",
+#   start = oct1_start,
+#   end   = today_end_str, 
+#   pricearea = "DK1"
+# )
+#####
+get_wind <- function(base, start = NULL, end = NULL) {
   
   query <- list()
   
   if (!is.null(start)) query$start <- start
   if (!is.null(end))   query$end   <- end
-  
-  # force PriceArea filter (default DK1)
-  if (!is.null(pricearea)) {
-    query$filter <- sprintf('{"PriceArea":"%s"}', pricearea)
-  }
   
   res <- GET(base, query = query)
   stop_for_status(res)
@@ -637,9 +736,17 @@ wind <- get_wind(
   base = "https://api.energidataservice.dk/dataset/ElectricityProdex5MinRealtime?",
   start = oct1_start,
   end   = today_end_str
-)
+) %>%
+  filter(PriceArea %in% c("DK1", "DK2"))
 
-wind_15min_panel <- wind %>%
+wind_wide <- wind %>%
+  pivot_wider(
+    names_from = PriceArea,
+    values_from = c(OffshoreWindPower, OnshoreWindPower, SolarPower),
+    names_glue = "{.value}_{PriceArea}"
+  )
+
+wind_15min_panel <- wind_wide %>%
   mutate(
     Minutes5DK = ymd_hms(Minutes5DK),
     Date = as_date(Minutes5DK),
@@ -651,9 +758,25 @@ wind_15min_panel <- wind %>%
   ) %>%
   group_by(Date, Quarter) %>%
   summarise(
-    OffshoreWindPower = mean(OffshoreWindPower, na.rm = TRUE),
-    OnshoreWindPower  = mean(OnshoreWindPower, na.rm = TRUE),
-    SolarPower        = mean(SolarPower, na.rm = TRUE),
+    ProductionLt100MW   = mean(ProductionLt100MW, na.rm = TRUE),
+    ProductionGe100MW   = mean(ProductionGe100MW, na.rm = TRUE),
+    
+    ExchangeGreatBelt   = mean(ExchangeGreatBelt, na.rm = TRUE),
+    ExchangeGermany     = mean(ExchangeGermany, na.rm = TRUE),
+    ExchangeNetherlands = mean(ExchangeNetherlands, na.rm = TRUE),
+    ExchangeGreatBritain= mean(ExchangeGreatBritain, na.rm = TRUE),
+    ExchangeNorway      = mean(ExchangeNorway, na.rm = TRUE),
+    ExchangeSweden      = mean(ExchangeSweden, na.rm = TRUE),
+    BornholmSE4         = mean(BornholmSE4, na.rm = TRUE),
+    
+    OffshoreWindPower_DK1 = mean(OffshoreWindPower_DK1, na.rm = TRUE),
+    OffshoreWindPower_DK2 = mean(OffshoreWindPower_DK2, na.rm = TRUE),
+    
+    OnshoreWindPower_DK1  = mean(OnshoreWindPower_DK1, na.rm = TRUE),
+    OnshoreWindPower_DK2  = mean(OnshoreWindPower_DK2, na.rm = TRUE),
+    
+    SolarPower_DK1        = mean(SolarPower_DK1, na.rm = TRUE),
+    SolarPower_DK2        = mean(SolarPower_DK2, na.rm = TRUE),
     Weekday = first(Weekday),
     Month = first(Month),
     .groups = "drop"
@@ -675,7 +798,16 @@ wind_15min_panel <- wind_15min_panel %>%
 wind_15min_panel <- wind_15min_panel %>%
   group_by(Date) %>%
   arrange(Quarter) %>%
-  fill(OffshoreWindPower, OnshoreWindPower, SolarPower, .direction = "down") %>%
+  fill(
+    OffshoreWindPower_DK1, OffshoreWindPower_DK2,
+    OnshoreWindPower_DK1, OnshoreWindPower_DK2,
+    SolarPower_DK1, SolarPower_DK2,
+    ProductionLt100MW, ProductionGe100MW,
+    ExchangeGreatBelt, ExchangeGermany, ExchangeNetherlands,
+    ExchangeGreatBritain, ExchangeNorway, ExchangeSweden,
+    BornholmSE4,
+    .direction = "down"
+  ) %>%
   ungroup()
 
 # date 2025-11-22 is missing and therefore we copy the day before
@@ -723,15 +855,21 @@ wind_15min_panel <- wind_15min_panel %>%
 panel_data <- spotprice_panel %>%
   left_join(
     consumption_q_panel %>%
-      select(Date, Quarter, ConsumptionkWh),
+      select(Date, Quarter, Consumption_HS, Consumption_MJ, Consumption_NJ, Consumption_SJ, Consumption_SJL),
     by = c("Date", "Quarter")
   ) %>%
   left_join(
     wind_15min_panel %>%
-      select(Date, Quarter, OffshoreWindPower, OnshoreWindPower, SolarPower),
+      select(Date, Quarter, OffshoreWindPower_DK1, OffshoreWindPower_DK2,
+             OnshoreWindPower_DK1, OnshoreWindPower_DK2,
+             SolarPower_DK1, SolarPower_DK2,
+             ProductionLt100MW, ProductionGe100MW,
+             ExchangeGreatBelt, ExchangeGermany, ExchangeNetherlands,
+             ExchangeGreatBritain, ExchangeNorway, ExchangeSweden,
+             BornholmSE4),
     by = c("Date", "Quarter")
   ) %>% 
-  filter(!is.na(ConsumptionkWh))
+  filter(!is.na(Consumption_HS))
 
 panel_data %>%
   filter(if_any(everything(), is.na))
@@ -745,9 +883,12 @@ check_panel <- function(df, value_col) {
   )
 }
 check_panel(panel_data, "SpotPriceDKK")
-check_panel(panel_data, "ConsumptionkWh")
+check_panel(panel_data, "Consumption_HS")
+check_panel(panel_data, "Consumption_MJ")
+check_panel(panel_data, "Consumption_NJ")
+check_panel(panel_data, "Consumption_SJ")
+check_panel(panel_data, "Consumption_SJL")
 check_panel(panel_data, "SpotPriceDKK")
-check_panel(panel_data, "ConsumptionkWh")
 check_panel(panel_data, "OffshoreWindPower")
 check_panel(panel_data, "OnshoreWindPower")
 check_panel(panel_data, "SolarPower")
