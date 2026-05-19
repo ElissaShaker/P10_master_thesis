@@ -1,6 +1,6 @@
 path <- setwd("~/Desktop/P10") 
 source("Get_Data_Quarterly.R")
-head(pdata)
+head(train_pdata)
 ###########################
 #### PANEL DATA STATIC ####
 ###########################
@@ -8,8 +8,9 @@ head(pdata)
 pr_model <- plm(
   LogPrice_100 ~ ConsumptionkWh + OffshoreWindPower +
     OnshoreWindPower + SolarPower,
-  data = pdata,
-  model = "pooling"
+  data = train_pdata,
+  model = "pooling",
+  index = c("Quarter", "Date")
 )
 
 summary(pr_model)
@@ -18,8 +19,9 @@ summary(pr_model)
 fe_model <- plm(
   LogPrice_100 ~ ConsumptionkWh + OffshoreWindPower +
     OnshoreWindPower + SolarPower,
-  data = pdata,
-  model = "within"
+  data = train_pdata,
+  model = "within",
+  index = c("Quarter", "Date")
 )
 
 summary(fe_model)
@@ -27,8 +29,9 @@ summary(fe_model)
 # Random Effects (RE)
 re_model <- plm(LogPrice_100 ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower +
                   Weekday + Month,
-                data = pdata,
-                model = "random"
+                data = train_pdata,
+                model = "random",
+                index = c("Quarter", "Date")
 )
 
 summary(re_model)
@@ -229,6 +232,225 @@ plmtest(pr_model, type = "bp")
 ## if p-val<0.05 => FE
 phtest(fe_model, re_model)
 
+
+
+
+
+
+
+##########################
+#### DYNAMIC FE MODEL ####
+##########################
+names(pdata)
+# fe_dyn_model <- plm(
+#   LogPrice_100 ~ ConsumptionkWh + OffshoreWindPower +
+#     OnshoreWindPower + SolarPower + lag(LogPrice_100, 96),
+#   data = pdata,
+#   model = "within",
+#   index = c("Quarter", "Date")
+# )
+# 
+# summary(fe_dyn_model)
+
+model_data <- pdata %>%
+  as.data.frame() %>%
+  arrange(Date, Quarter) %>%
+  group_by(Quarter) %>%   # ensure correct panel structure
+  mutate(
+    LagLogPrice_96 = dplyr::lag(LogPrice_100, 96)
+  ) %>%
+  ungroup() %>%
+  filter(!is.na(LagLogPrice_96))
+
+fe_dyn_model <- plm(
+  LogPrice_100 ~ ConsumptionkWh +
+    OffshoreWindPower +
+    OnshoreWindPower +
+    SolarPower +
+    LagLogPrice_96,
+  data = model_data,
+  model = "within",
+  index = c("Quarter", "Date")
+)
+
+summary(fe_dyn_model)
+# Pesaran CD test on the fixed effects model
+## is the residuals from the panel model correlated across cross-sectional units
+pcdtest(fe_dyn_model, test = "cd")
+
+model_data$Predicted <- as.numeric(fitted(fe_dyn_model))
+model_data$Predicted <- as.numeric(
+  model.matrix(fe_dyn_model) %*% coef(fe_dyn_model)
+)
+
+full_plot_data <- pdata %>%
+  as.data.frame() %>%
+  arrange(Date, Quarter) %>%
+  left_join(
+    model_data %>% select(Date, Quarter, Predicted),
+    by = c("Date", "Quarter")
+  )
+
+plot_quarter_hours <- function(data, start_hour = 12) {
+  
+  selected_quarters <- (start_hour * 4):((start_hour + 4) * 4 - 1)
+
+  plot_data <- data %>%
+    filter(Quarter %in% selected_quarters) %>%
+    filter(!is.na(LogPrice_100), !is.na(Predicted))
+  
+  ggplot(plot_data, aes(x = Date, group = Quarter)) +
+    geom_line(aes(y = LogPrice_100), colour = "black", linewidth = 0.3) +
+    geom_line(aes(y = Predicted), colour = "red", linewidth = 0.3) +
+    
+    facet_wrap(~ QuarterLabel, ncol = 4) +
+    labs(
+      title = paste0(
+        "Quarter-hour electricity prices (hours ",
+        start_hour, "–", start_hour + 3, ")"
+      ),
+      x = NULL,
+      y = NULL
+    ) +
+    
+    theme_bw() +
+    theme(
+      strip.text = element_text(size = 10),
+      axis.text.x = element_text(size = 6),
+      axis.text.y = element_text(size = 6),
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold")
+    )
+}
+
+plot_quarter_hours(full_plot_data, start_hour = 12)
+
+
+# Create predicted values from the dynamic FE model
+pdata$Predicted <- NA
+pdata$Predicted[as.numeric(rownames(model.frame(fe_dyn_model)))] <- predict(fe_dyn_model)
+# Remove rows with missing predictions
+# (the lagged variable creates missing values at the beginning)
+plot_data <- na.omit(data.frame(
+  Date      = pdata$Date,
+  Quarter   = pdata$Quarter,
+  Observed  = pdata$LogPrice_100,
+  Predicted = pdata$Predicted
+))
+
+plot_subset$QuarterLabel <- factor(
+  plot_subset$Quarter,
+  levels = c(0, 24, 48, 72),
+  labels = c("00:00", "06:00", "12:00", "18:00")
+)
+
+ggplot(plot_subset, aes(x = Date)) +
+  geom_line(aes(y = Observed, color = "Observed")) +
+  geom_line(aes(y = Predicted, color = "Predicted")) +
+  facet_wrap(~ QuarterLabel, scales = "free_y") +
+  labs(
+    title = "Observed vs Predicted Log Prices",
+    x = "Date",
+    y = "LogPrice_100",
+    color = ""
+  ) +
+  theme_minimal()
+
+# Plot observed vs predicted
+ggplot(plot_data, aes(x = Date)) +
+  geom_line(aes(y = Observed, color = "Observed")) +
+  geom_line(aes(y = Predicted, color = "Predicted")) +
+  facet_wrap(~ Quarter, scales = "free_y") +
+  labs(
+    title = "Observed vs Predicted Log Prices by Quarter",
+    x = "Date",
+    y = "LogPrice_100",
+    color = ""
+  ) +
+  theme_minimal()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+plot_data <- model.frame(fe_dyn_model)
+
+plot_data$Fitted <- fitted(fe_dyn_model)
+plot_data$Residuals <- residuals(fe_dyn_model)
+plot_data$Predicted <- as.numeric(predict(fe_dyn_model))
+
+ggplot(plot_data, aes(x = 1:nrow(plot_data))) +
+  geom_line(aes(y = LogPrice_100, color = "LogPrice_100")) +
+  geom_line(aes(y = Predicted, color = "Predicted")) +
+  labs(
+    title = "LogPrice_100 vs Predicted",
+    x = "Observation",
+    y = "Log Price"
+  ) +
+  theme_minimal()
+# -------------------------------
+# 2. Residuals vs Fitted Values
+# -------------------------------
+
+ggplot(plot_data, aes(x = Fitted, y = Residuals)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted Values",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+
+# -------------------------------
+# 3. Histogram of Residuals
+# -------------------------------
+plot_data <- data.frame(
+  LogPrice_100 = as.numeric(plot_data$LogPrice_100),
+  Fitted       = as.numeric(fitted(fe_dyn_model)),
+  Residuals    = as.numeric(residuals(fe_dyn_model))
+)
+ggplot(plot_data, aes(x = Residuals)) +
+  geom_histogram(bins = 50) +
+  labs(
+    title = "Distribution of Residuals",
+    x = "Residuals",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# -------------------------------
+# 4. Residuals Over Time
+# -------------------------------
+
+ggplot(plot_subset, aes(x = 1:nrow(plot_subset), y = Residuals)) +
+  geom_line() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Residuals Over Time",
+    x = "Time",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+
+# -------------------------------
+# 5. ACF Plot of Residuals
+# -------------------------------
+
+acf(plot_data$Residuals,
+    main = "ACF of Residuals")
+
+
 ###############
 #### Kilde ####
 ###############
@@ -306,45 +528,6 @@ summary(pca_model)$importance[2,]
 cor(pdata_model %>% select(log_consumption, log_offshore, log_onshore, log_solar))
 
 
-###########################
-#### PANEL DATA STATIC ####
-###########################
-# Pooled Regression (PR)
-pr_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
-                  factor(Quarter) + Weekday + Month,
-                data = pdata,
-                model = "pooling"
-)
-summary(pr_model)
-# Fixed Effects (FE)
-fe_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + 
-                  factor(Quarter), 
-                # You cannot include Weekday or Month in FE if they are constant within Date (they get absorbed).
-                data = pdata,
-                model = "within"
-)
-summary(fe_model)
-
-# Random Effects (RE)
-re_model <- plm(LogPrice ~ ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower +
-                  Weekday + Month,
-                data = pdata,
-                model = "random"
-)
-summary(re_model)
-
-#### TEST ####
-# FE vs PR → F-test 
-## if p-val<0.05 => FE
-pFtest(fe_model, pr_model)
-
-# RE vs PR → Breusch-Pagan Lagrange Multiplier test
-## if p-val<0.05 => RE
-plmtest(pr_model, type = "bp")
-
-# FE vs RE → Hausman test
-## if p-val<0.05 => FE
-phtest(fe_model, re_model)
 
 ###########################
 #### DYAMIC PANEL DATA ####
@@ -356,6 +539,19 @@ dyn_fe_model <- plm(
   data = pdata,
   model = "within"
 )
+
+ab_model <- pgmm(
+  LogPrice_100 ~ lag(LogPrice_100, 1:2) +
+    ConsumptionkWh + OffshoreWindPower +
+    OnshoreWindPower + SolarPower |
+    lag(LogPrice_100, 2:99),
+  data = pdata,
+  effect = "individual",
+  model = "twosteps",
+  transformation = "d"
+)
+
+summary(ab_model)
 # hvorfor factor(Hour): Electricity prices are heavily driven by predictable intraday patterns, and failing to control for them would bias both consumption and lag effects.
 # hvorfor kun within: Although the inclusion of a lagged dependent variable introduces endogeneity in short panels, the bias of the fixed effects estimator decreases at rate O(1/T). Given the large time dimension in the present dataset, the bias is expected to be negligible, and the within estimator is therefore used for both static and dynamic specifications.
 summary(dyn_fe_model)
@@ -370,24 +566,3 @@ summary(dyn_fe_model)
 cd_test <- pcdtest(dyn_fe_model, test = "cd")
 
 cd_test
-
-######################
-#### FACTOR MODEL ####
-######################
-# residuals
-model_data <- model.frame(dyn_fe_model)
-model_data$res <- residuals(dyn_fe_model)
-idx <- as.data.frame(index(dyn_fe_model))
-colnames(idx) <- c("Date", "Quarter")
-
-model_data <- cbind(idx, model_data)
-
-# residual matrix
-resid_matrix <- model_data %>%
-  as.data.frame() %>%
-  select(Date, Quarter, res) %>%
-  pivot_wider(
-    names_from = Quarter,
-    values_from = res
-  ) %>%
-  arrange(Date)

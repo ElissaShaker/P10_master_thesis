@@ -113,7 +113,7 @@ panel_latex_table <- function(models,
   cols <- model_names
   
   # ---------- SAVE PATH ----------
-  output_path <- "Tables/model_results.tex"
+  output_path <- "Tables/model_results_hourly.tex"
   
   # label derived from file name
   table_label <- tools::file_path_sans_ext(basename(output_path))
@@ -201,16 +201,12 @@ panel_latex_table <- function(models,
   )
   
   # ---------- SAVE TO FILE ----------
-  output_path <- "Tables/model_results.tex"
-  
   # ensure folder exists
   dir.create(dirname(output_path), showWarnings = FALSE, recursive = TRUE)
   
   writeLines(latex, con = output_path)
   
   return(invisible(output_path))
-  
-  
 }
 models <- list(
   pr_model,
@@ -219,6 +215,7 @@ models <- list(
 )
 
 panel_latex_table(models)
+
 
 #### TEST ####
 # FE vs PR → F-test 

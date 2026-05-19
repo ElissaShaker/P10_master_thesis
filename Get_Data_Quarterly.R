@@ -41,18 +41,18 @@ get_elspot <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
   return(as_tibble(parsed$records))
 }
 
-# Today
-today_end <- Sys.Date()
-
-# One year ago
-one_year_ago <- today_end - years(2)
-
-# Format as "YYYY-MM-DDT00:00"
-today_end_str <- paste0(format(today_end, "%Y-%m-%d"), "T00:00")
-one_year_ago_str <- paste0(format(one_year_ago, "%Y-%m-%d"), "T00:00")
-
-today_end_str
-one_year_ago_str
+# # Today
+# today_end <- Sys.Date()
+# 
+# # One year ago
+# one_year_ago <- today_end - years(2)
+# 
+# # Format as "YYYY-MM-DDT00:00"
+# # today_end_str <- paste0(format(today_end, "%Y-%m-%d"), "T00:00")
+# one_year_ago_str <- paste0(format(one_year_ago, "%Y-%m-%d"), "T00:00")
+# 
+# # today_end_str
+# one_year_ago_str
 #####
 # #spot price util 2025-10-01
 # spotprice1 <- get_elspot("https://api.energidataservice.dk/dataset/Elspotprices", 
@@ -77,6 +77,8 @@ one_year_ago_str
 #   ungroup()
 
 #####
+today_end_str <- "2026-05-18T00:00"
+today_end_str
 oct1_start <- "2025-10-01T00:00"
 oct1_start
 #spot price from 2025-10-01
@@ -145,25 +147,33 @@ spotprice_panel <- spotprice_panel %>%
                      "Non-working hours")
   )
 
+# spotprice_panel <- spotprice_panel %>%
+#   arrange(Hour, Date) %>%
+#   group_by(Hour) %>%
+#   mutate(
+#     LogPrice = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 1),
+#     LogPrice_100 = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 100),
+#     LogPrice_asinh = log(SpotPriceDKK + sqrt(SpotPriceDKK^2 + 1)),
+#     
+#     LagLogPrice_1 = lag(LogPrice, 1),
+#     LagLogPrice_7 = lag(LogPrice, 7),
+#     
+#     LagLogPrice_100_1 = lag(LogPrice_100, 1),
+#     LagLogPrice_100_7 = lag(LogPrice_100, 7),
+#     
+#     
+#     LagLogPrice_asinh_1 = lag(LogPrice_asinh, 1),
+#     LagLogPrice_asinh_7 = lag(LogPrice_asinh, 7)
+#   ) %>%
+#   ungroup()
+
 spotprice_panel <- spotprice_panel %>%
-  arrange(Hour, Date) %>%
-  group_by(Hour) %>%
+  arrange(Date, Quarter) %>%
   mutate(
     LogPrice = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 1),
     LogPrice_100 = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 100),
     LogPrice_asinh = log(SpotPriceDKK + sqrt(SpotPriceDKK^2 + 1)),
-    
-    LagLogPrice_1 = lag(LogPrice, 1),
-    LagLogPrice_7 = lag(LogPrice, 7),
-    
-    LagLogPrice_100_1 = lag(LogPrice_100, 1),
-    LagLogPrice_100_7 = lag(LogPrice_100, 7),
-    
-    
-    LagLogPrice_asinh_1 = lag(LogPrice_asinh, 1),
-    LagLogPrice_asinh_7 = lag(LogPrice_asinh, 7)
-  ) %>%
-  ungroup()
+  )
 
 head(spotprice_panel)
 names(spotprice_panel)
@@ -201,7 +211,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
     date_labels = "%b\n%Y"
   ) +
   theme_minimal()
-# ggsave("plots/Quarterly/spotprice_querterly_Time10.png", width = 10, height = 6, dpi = 300)
+ggsave("plots/Quarterly/spotprice_querterly_Time10.png", width = 10, height = 6, dpi = 300)
 
 ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK, color = Quarter_label)) +
   geom_line(linewidth = 0.5) +
@@ -222,7 +232,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK, color = Quarter_label))
     date_labels = "%b\n%Y"
   ) +
   theme_minimal(base_size = 20) 
-#ggsave("plots/Quarterly/spotprice_querterly_Time10_oneplot.png", width = 10, height = 6, dpi = 300)
+ggsave("plots/Quarterly/spotprice_querterly_Time10_oneplot.png", width = 10, height = 6, dpi = 300)
 
 
 # Plot: one line per weekday
@@ -243,7 +253,7 @@ ggplot(avg_quarterly, aes(x = Quarter, y = AvgPriceDKK, color = Weekday)) +
     color = "Weekday"
   ) +
   theme_minimal(base_size = 20)  # <- key change
-#ggsave("plots/Quarterly/spotprice_avg_quarterly_weekday.png", width = 10, height = 6, dpi = 600)
+ggsave("plots/Quarterly/spotprice_avg_quarterly_weekday.png", width = 10, height = 6, dpi = 600)
 
 
 # Plot: one line per month
@@ -264,7 +274,7 @@ ggplot(avg_quarterly_month, aes(x = Quarter, y = AvgPriceDKK, color = Month)) +
     color = "Month"
   ) +
   theme_minimal(base_size = 20)  # <- key change
-#ggsave("plots/Quarterly/spotprice_avg_quarterly_month.png", width = 10, height = 6, dpi = 600)
+ggsave("plots/Quarterly/spotprice_avg_quarterly_month.png", width = 10, height = 6, dpi = 600)
 
 # plot of log price
 plot_quarter_hours <- function(data, start_hour = 12) {
@@ -275,7 +285,7 @@ plot_quarter_hours <- function(data, start_hour = 12) {
   plot_data <- data %>%
     filter(Quarter %in% selected_quarters)
 
-  ggplot(plot_data, aes(x = Date, y = LogPrice)) +
+  ggplot(plot_data, aes(x = Date, y = LogPrice_100)) +
     geom_line(size = 0.2, colour = "black") +
 
     facet_wrap(~ QuarterLabel, ncol = 4) +
@@ -299,7 +309,7 @@ plot_quarter_hours <- function(data, start_hour = 12) {
 }
 
 plot_quarter_hours(spotprice_panel, start_hour = 12)
-#ggsave("plots/Quarterly/Quarter_hour_spotprice_4_4_plot.png", width = 10, height = 6, dpi = 600)
+ggsave("plots/Quarterly/Quarter_hour_spotprice_4_4_plot.png", width = 10, height = 6, dpi = 600)
 
 
 head(spotprice_panel)
@@ -368,10 +378,10 @@ tex_output <- stats_summary %>%
   ) %>%
   as.character()
 
-# writeLines(
-#   tex_output,
-#   "Tables/quarterly_skewness_kurtosis_table.tex"
-# )
+writeLines(
+  tex_output,
+  "Tables/quarterly_skewness_kurtosis_table.tex"
+)
 
 
 ########
@@ -747,9 +757,18 @@ check_panel(panel_data, "SolarPower")
 #### PANEL DATA ####
 ####################
 panel_data <- panel_data %>%
-  mutate(Date = as.Date(Date))
+  mutate(Date = as.Date(as.character(Date)))
 
+cutoff <- as.Date("2026-05-01")
+
+train_data <- panel_data %>% filter(Date <= cutoff)
+test_data  <- panel_data %>% filter(Date > cutoff)
+
+
+train_pdata <- pdata.frame(train_data, index = c("Quarter", "Date"))
+test_pdata  <- pdata.frame(test_data,  index = c("Quarter", "Date"))
 pdata <- pdata.frame(panel_data, index = c("Quarter", "Date"))
 
 end_time <- Sys.time()
 cat(end_time - start_time)
+

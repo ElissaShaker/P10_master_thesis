@@ -48,8 +48,10 @@ today_end <- Sys.Date()
 one_year_ago <- today_end - years(6)
 
 # Format as "YYYY-MM-DDT00:00"
-today_end_str <- paste0(format(today_end, "%Y-%m-%d"), "T00:00")
+# today_end_str <- paste0(format(today_end, "%Y-%m-%d"), "T00:00")
 one_year_ago_str <- paste0(format(one_year_ago, "%Y-%m-%d"), "T00:00")
+
+today_end_str <- "2026-05-18T00:00"
 
 today_end_str
 one_year_ago_str
@@ -137,13 +139,7 @@ spotprice_panel <- spotprice_panel %>%
   mutate(
     LogPrice = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 1),
     LogPrice_100 = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 100),
-    
-    LagLogPrice_1 = lag(LogPrice, 1),
-    LagLogPrice_7 = lag(LogPrice, 7),
-    
-    LogPrice_asinh = log(SpotPriceDKK + sqrt(SpotPriceDKK^2 + 1)),
-    LagLogPrice_asinh_1 = lag(LogPrice_asinh, 1),
-    LagLogPrice_asinh_7 = lag(LogPrice_asinh, 7)
+    LogPrice_asinh = log(SpotPriceDKK + sqrt(SpotPriceDKK^2 + 1))
   ) %>%
   ungroup()
 
@@ -176,7 +172,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
   ) +
   theme_minimal()
 # ggsave("plots/Hourly/spotprice_hourly_Time0_8_16.png", width = 10, height = 6, dpi = 300)
-# ggsave("plots/Hourly/spotprice_hourly_Time0_8_16_2023.png", width = 10, height = 6, dpi = 300)
+ggsave("plots/Hourly/spotprice_hourly_Time0_8_16_2023.png", width = 10, height = 6, dpi = 300)
 
 # Compute average price per Hour and Weekday
 avg_hourly <- spotprice_panel %>%
@@ -197,7 +193,7 @@ ggplot(avg_hourly, aes(x = Hour, y = AvgPriceDKK, color = Weekday)) +
     color = "Weekday"
   ) +
   theme_minimal(base_size = 20)  # <- key change
-# ggsave("plots/Hourly/spotprice_avg_hourly_weekday.png", width = 10, height = 6, dpi = 600)
+ggsave("plots/Hourly/spotprice_avg_hourly_weekday.png", width = 10, height = 6, dpi = 600)
 
 
 avg_hourly_month <- spotprice_panel %>%
@@ -218,7 +214,7 @@ ggplot(avg_hourly_month, aes(x = Hour, y = AvgPriceDKK, color = Month)) +
     color = "Month"
   ) +
   theme_minimal(base_size = 20)  # <- key change
-# ggsave("plots/Hourly/spotprice_avg_hourly_month.png", width = 10, height = 6, dpi = 600)
+ggsave("plots/Hourly/spotprice_avg_hourly_month.png", width = 10, height = 6, dpi = 600)
 
 ########
 # tables sum
@@ -284,10 +280,10 @@ tex_output <- stats_summary %>%
   ) %>%
   as.character()
 
-# writeLines(
-#   tex_output,
-#   "Tables/hourly_skewness_kurtosis_table.tex"
-# )
+writeLines(
+  tex_output,
+  "Tables/hourly_skewness_kurtosis_table.tex"
+)
 
 ########
 # tables each hour
