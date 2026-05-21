@@ -17,7 +17,10 @@ library(broom)
 library(purrr)
 library(stringr)
 library(bestNormalize)
-
+library(broadcast)
+library(dynlm)
+library(forecast)
+library(car)
 
 setwd("~/Desktop/P10")
 ########################
@@ -42,7 +45,7 @@ get_elspot <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
   
   return(as_tibble(parsed$records))
 }
-
+#####
 # # Today
 # today_end <- Sys.Date()
 # 
@@ -55,7 +58,7 @@ get_elspot <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
 # 
 # # today_end_str
 # one_year_ago_str
-#####
+# 
 # #spot price util 2025-10-01
 # spotprice1 <- get_elspot("https://api.energidataservice.dk/dataset/Elspotprices", 
 #                          start = one_year_ago_str, #"2025-02-22T00:00",
@@ -84,21 +87,36 @@ today_end_str
 oct1_start <- "2025-10-01T00:00"
 oct1_start
 #spot price from 2025-10-01
-spotprice2 <- get_elspot("https://api.energidataservice.dk/dataset/DayAheadPrices", 
-                         start = oct1_start,
-                         end   = today_end_str 
-) %>% 
-  rename(HourUTC = TimeUTC,
-         HourDK = TimeDK,
-         SpotPriceDKK = DayAheadPriceDKK#, SpotPriceEUR = DayAheadPriceEUR
-         )
+price_areas <- c("DK1", "DK2", "DE", "NO2", "SE3", "SE4")
+
+spotprice_all <- map_dfr(price_areas, function(pa) {
+  Sys.sleep(5)
+  get_elspot(
+    "https://api.energidataservice.dk/dataset/DayAheadPrices",
+    start = oct1_start,
+    end   = today_end_str,
+    pricearea = pa
+  ) %>%
+    rename(
+      HourUTC = TimeUTC,
+      HourDK  = TimeDK,
+      SpotPriceDKK = DayAheadPriceDKK
+    ) %>%
+    mutate(Area = pa)
+}) %>%
+  select(HourUTC, HourDK, Area, SpotPriceDKK) %>%
+  pivot_wider(
+    names_from = Area,
+    values_from = SpotPriceDKK,
+    names_prefix = "SpotPrice_"
+  )
 
 # Ensure HourDK column are datetime
-spotprice2 <- spotprice2 %>%
+spotprice_all <- spotprice_all %>%
   mutate(HourDK = ymd_hms(HourDK))
 
 # Combine datasets
-spotprice_all <- spotprice2 #bind_rows(spotprice1_quarter, spotprice2) %>% arrange(HourDK)
+spotprice_all <- spotprice_all #bind_rows(spotprice1_quarter, spotprice2) %>% arrange(HourDK)
 
 # quartely panel, each quarter should be a separate “group”:
 spotprice_panel <- spotprice_all %>%
@@ -112,8 +130,12 @@ spotprice_panel <- spotprice_all %>%
   ) %>%
   group_by(Date, Quarter) %>%
   summarise(
-    SpotPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-    #SpotPriceEUR = mean(SpotPriceEUR, na.rm = TRUE),
+    SpotPrice_DK1 = mean(SpotPrice_DK1, na.rm = TRUE),
+    SpotPrice_DK2 = mean(SpotPrice_DK2, na.rm = TRUE),
+    SpotPrice_DE = mean(SpotPrice_DE, na.rm = TRUE),
+    SpotPrice_NO2 = mean(SpotPrice_NO2, na.rm = TRUE),
+    SpotPrice_SE3 = mean(SpotPrice_SE3, na.rm = TRUE),
+    SpotPrice_SE4 = mean(SpotPrice_SE4, na.rm = TRUE),
     Weekday = first(Weekday),
     Month = first(Month),
     .groups = "drop"
@@ -135,7 +157,8 @@ spotprice_panel <- spotprice_panel %>%
 spotprice_panel <- spotprice_panel %>%
   group_by(Date) %>%
   arrange(Quarter) %>%
-  fill(SpotPriceDKK, .direction = "down") %>%
+  fill(SpotPrice_DK1, SpotPrice_DK2, SpotPrice_DE, SpotPrice_NO2, SpotPrice_SE3, SpotPrice_SE4, 
+       .direction = "down") %>%
   ungroup()
 
 # log spotprice
@@ -169,14 +192,14 @@ spotprice_panel <- spotprice_panel %>%
 #   ) %>%
 #   ungroup()
 
-yj <- yeojohnson(spotprice_panel$SpotPriceDKK)
+yj <- yeojohnson(spotprice_panel$SpotPrice_DK1)
 
 spotprice_panel <- spotprice_panel %>%
   arrange(Date, Quarter) %>%
   mutate(
-    LogPrice = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 1),
-    LogPrice_100 = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 100),
-    LogPrice_asinh = log(SpotPriceDKK + sqrt(SpotPriceDKK^2 + 1)),
+    LogPrice = log(SpotPrice_DK1 + abs(min(SpotPrice_DK1, na.rm = TRUE)) + 1),
+    LogPrice_100 = log(SpotPrice_DK1 + abs(min(SpotPrice_DK1, na.rm = TRUE)) + 100),
+    LogPrice_asinh = log(SpotPrice_DK1 + sqrt(SpotPrice_DK1^2 + 1)),
     YJPrice = predict(yj)
   )
 head(spotprice_panel)
@@ -184,7 +207,7 @@ names(spotprice_panel)
 ####################################
 #### SPOT PRICE ANALYSIS CHPT.2 ####
 ####################################
-vars <- c("SpotPriceDKK", "LogPrice", "LogPrice_100", "LogPrice_asinh", "YJPrice")
+vars <- c("SpotPrice_DK1", "LogPrice", "LogPrice_100", "LogPrice_asinh", "YJPrice")
 
 for (v in vars) {
   p <- ggplot(spotprice_panel, aes(x = .data[[v]])) +
@@ -215,7 +238,7 @@ spotprice_subset <- spotprice_panel %>%
 spotprice_subset <- spotprice_subset %>%
   mutate(Quarter_label = factor(Quarter_label))
 
-ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
+ggplot(spotprice_subset, aes(x = Date, y = SpotPrice_DK1)) +
   geom_line(color = "steelblue") +
   facet_wrap(~ Quarter_label, ncol = 1, scales = "free_y") +
   labs(
@@ -230,7 +253,7 @@ ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
   theme_minimal()
 ggsave("plots/Quarterly/spotprice_querterly_Time10.png", width = 10, height = 6, dpi = 300)
 
-ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK, color = Quarter_label)) +
+ggplot(spotprice_subset, aes(x = Date, y = SpotPrice_DK1, color = Quarter_label)) +
   geom_line(linewidth = 0.5) +
   # scale_color_manual(values = c(
   #   "0" = "#d62728",
@@ -256,7 +279,7 @@ ggsave("plots/Quarterly/spotprice_querterly_Time10_oneplot.png", width = 10, hei
 avg_quarterly <- spotprice_panel %>%
   group_by(Weekday, Quarter) %>%
   summarise(
-    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    AvgPriceDKK = mean(SpotPrice_DK1, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -277,7 +300,7 @@ ggsave("plots/Quarterly/spotprice_avg_quarterly_weekday.png", width = 10, height
 avg_quarterly_month <- spotprice_panel %>%
   group_by(Month, Quarter) %>%
   summarise(
-    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    AvgPriceDKK = mean(SpotPrice_DK1, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -349,7 +372,7 @@ plot_qq <- function(data, var, title = NULL, save_path = NULL,
   return(p)
 }
 
-plot_qq(spotprice_panel, SpotPriceDKK,
+plot_qq(spotprice_panel, SpotPrice_DK1,
         save_path = "plots/Quarterly/qqplot_spotprice.png")
 
 plot_qq(spotprice_panel, LogPrice,
@@ -366,9 +389,9 @@ plot_qq(spotprice_panel, YJPrice,
 
 
 stats_summary <- data.frame(
-  Variable = c("SpotPriceDKK", "LogPrice", "LogPrice_100", "LogPrice_asinh", "YJPrice"),
+  Variable = c("SpotPrice_DK1", "LogPrice", "LogPrice_100", "LogPrice_asinh", "YJPrice"),
   Skewness = c(
-    e1071::skewness(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
+    e1071::skewness(spotprice_panel$SpotPrice_DK1, na.rm = TRUE),
     e1071::skewness(spotprice_panel$LogPrice, na.rm = TRUE),
     e1071::skewness(spotprice_panel$LogPrice_100, na.rm = TRUE),
     e1071::skewness(spotprice_panel$LogPrice_asinh, na.rm = TRUE),
@@ -376,7 +399,7 @@ stats_summary <- data.frame(
     
   ),
   Kurtosis = c(
-    e1071::kurtosis(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
+    e1071::kurtosis(spotprice_panel$SpotPrice_DK1, na.rm = TRUE),
     e1071::kurtosis(spotprice_panel$LogPrice, na.rm = TRUE),
     e1071::kurtosis(spotprice_panel$LogPrice_100, na.rm = TRUE),
     e1071::kurtosis(spotprice_panel$LogPrice_asinh, na.rm = TRUE),
@@ -439,7 +462,7 @@ quarterly_desc_stats <- function(data, spotprice, start_hour = 00, n_hours = 24)
   
   return(stats)
 }
-test <- quarterly_desc_stats(spotprice_panel, "SpotPriceDKK")
+test <- quarterly_desc_stats(spotprice_panel, "SpotPrice_DK1")
 test_log_1 <- quarterly_desc_stats(spotprice_panel, "LogPrice")
 test_log_100 <- quarterly_desc_stats(spotprice_panel, "LogPrice_100")
 test_asinh <- quarterly_desc_stats(spotprice_panel, "LogPrice_asinh")
@@ -542,19 +565,20 @@ save_quarterly_latex_table_single <- function(data, spotprice,
   
   invisible(NULL)
 }
+save_quarterly_latex_table_single(spotprice_panel, "SpotPrice_DK1")
 save_quarterly_latex_table_single(spotprice_panel, "LogPrice")
 save_quarterly_latex_table_single(spotprice_panel, "LogPrice_100")
 save_quarterly_latex_table_single(spotprice_panel, "LogPrice_asinh")
 save_quarterly_latex_table_single(spotprice_panel, "YJPrice")
 
 ###################
-mean(spotprice_panel$SpotPriceDKK <= 0, na.rm = TRUE)
+mean(spotprice_panel$SpotPrice_DK1 <= 0, na.rm = TRUE)
 
 spotprice_panel %>%
   summarise(
     n_total = n(),
-    n_non_positive = sum(SpotPriceDKK <= 0, na.rm = TRUE),
-    share_non_positive = mean(SpotPriceDKK <= 0, na.rm = TRUE)
+    n_non_positive = sum(SpotPrice_DK1 <= 0, na.rm = TRUE),
+    share_non_positive = mean(SpotPrice_DK1 <= 0, na.rm = TRUE)
   )
 
 
@@ -882,13 +906,12 @@ check_panel <- function(df, value_col) {
     duplicates = df %>% count(Date, Quarter) %>% filter(n > 1)
   )
 }
-check_panel(panel_data, "SpotPriceDKK")
+check_panel(panel_data, "SpotPrice_DK1")
 check_panel(panel_data, "Consumption_HS")
 check_panel(panel_data, "Consumption_MJ")
 check_panel(panel_data, "Consumption_NJ")
 check_panel(panel_data, "Consumption_SJ")
 check_panel(panel_data, "Consumption_SJL")
-check_panel(panel_data, "SpotPriceDKK")
 check_panel(panel_data, "OffshoreWindPower")
 check_panel(panel_data, "OnshoreWindPower")
 check_panel(panel_data, "SolarPower")
@@ -904,15 +927,13 @@ panel_data <- panel_data %>%
   mutate(
     Date = as.Date(as.character(Date)),
     
-    Consumption_Total =
-      Consumption_HS +
+    Consumption_DK1 =
       Consumption_MJ +
       Consumption_NJ +
-      Consumption_SJ +
-      Consumption_SJL
+      Consumption_SJ
   )
 
-cutoff <- as.Date("2026-05-01")
+cutoff <- as.Date("2026-04-30")
 
 train_data <- panel_data %>% filter(Date <= cutoff)
 test_data  <- panel_data %>% filter(Date > cutoff)
