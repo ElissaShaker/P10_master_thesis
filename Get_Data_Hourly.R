@@ -6,6 +6,8 @@ library(tidyr)
 library(lubridate)
 library(plm)
 library(ggplot2)
+library(e1071)
+library(knitr)
 library(kableExtra)
 library(Metrics)
 library(xtable)
@@ -14,15 +16,18 @@ library(moments)
 library(broom)
 library(purrr)
 library(stringr)
-library(e1071)
-library(knitr)
+library(bestNormalize)
+library(broadcast)
+library(dynlm)
+library(forecast)
+library(car)
 
 setwd("~/Desktop/P10")
 ########################
 #### GET SPOT PRICE ####
 ########################
 # function til at hente spotpriser i DK1
-get_elspot <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
+get_elspot <- function(base, start = NULL, end = NULL, pricearea) {
   query <- list()
   
   if (!is.null(start)) query$start <- start
@@ -41,53 +46,97 @@ get_elspot <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
   return(as_tibble(parsed$records))
 }
 
-# Today
-today_end <- Sys.Date()
-
-# One year ago
-one_year_ago <- today_end - years(6)
-
-# Format as "YYYY-MM-DDT00:00"
-# today_end_str <- paste0(format(today_end, "%Y-%m-%d"), "T00:00")
-one_year_ago_str <- paste0(format(one_year_ago, "%Y-%m-%d"), "T00:00")
+# # Today
+# today_end <- as.Date("2026-05-18T00:00")
+# 
+# # One year ago
+# one_year_ago <- today_end - years(6)
+# 
+# # Format as "YYYY-MM-DDT00:00"
+# # today_end_str <- paste0(format(today_end, "%Y-%m-%d"), "T00:00")
+# one_year_ago_str <- paste0(format(one_year_ago, "%Y-%m-%d"), "T00:00")
 
 today_end_str <- "2026-05-18T00:00"
-
+one_year_ago_str <- "2023-01-01T00:00"
 today_end_str
 one_year_ago_str
 
-#spot price util 2025-10-01
-spotprice1 <- get_elspot("https://api.energidataservice.dk/dataset/Elspotprices", 
-                         start = one_year_ago_str, # "2025-03-17T00:00",
-                         end   = "2025-10-01T00:00" # denne ædres ikke da dataet stopper her
-)
+# #spot price util 2025-10-01
+# spotprice1 <- get_elspot("https://api.energidataservice.dk/dataset/Elspotprices", 
+#                          start = one_year_ago_str, # "2025-03-17T00:00",
+#                          end   = "2025-10-01T00:00", # denne ædres ikke da dataet stopper her
+#                          pricearea = "DK1"
+# )
+# 
+# # Ensure HourDK column are datetime
+# spotprice1 <- spotprice1 %>%
+#   mutate(HourDK = ymd_hms(HourDK))
 
-# Ensure HourDK column are datetime
-spotprice1 <- spotprice1 %>%
-  mutate(HourDK = ymd_hms(HourDK))
+price_areas <- c("DK1", "DK2", "DE", "NO2", "SE3", "SE4")
 
+spotprice1 <- map_dfr(price_areas, function(pa) {
+  Sys.sleep(500)
+  get_elspot(
+    "https://api.energidataservice.dk/dataset/Elspotprices",
+    start = one_year_ago_str,
+    end   = "2025-10-01T00:00",
+    pricearea = pa
+  ) %>%
+    mutate(Area = pa)
+}) %>%
+  select(HourUTC, HourDK, Area, SpotPriceDKK) %>%
+  pivot_wider(
+    names_from = Area,
+    values_from = SpotPriceDKK,
+    names_prefix = "SpotPrice_"
+  )
 
-#spot price from 2025-10-01
-spotprice2 <- get_elspot("https://api.energidataservice.dk/dataset/DayAheadPrices", 
-                         start = "2025-10-01T00:00", # denne ædres ikke da dataet starter her
-                         end   = today_end_str # "2026-03-17T00:00"
-) %>% 
-  rename(HourUTC = TimeUTC,
-         HourDK = TimeDK,
-         SpotPriceDKK = DayAheadPriceDKK #, SpotPriceEUR = DayAheadPriceEUR
-         )
+spotprice1 <- spotprice1 %>% 
+  mutate(HourDK = ymd_hms(HourDK))  # convert to datetime
+  
+spotprice_all <- map_dfr(price_areas, function(pa) {
+  Sys.sleep(500)
+  get_elspot(
+    "https://api.energidataservice.dk/dataset/DayAheadPrices",
+    start = "2025-10-01T00:00",
+    end   = today_end_str,
+    pricearea = pa
+  ) %>%
+    rename(
+      HourUTC = TimeUTC,
+      HourDK  = TimeDK,
+      SpotPriceDKK = DayAheadPriceDKK
+    ) %>%
+    mutate(Area = pa)
+}) %>%
+  select(HourUTC, HourDK, Area, SpotPriceDKK) %>%
+  pivot_wider(
+    names_from = Area,
+    values_from = SpotPriceDKK,
+    names_prefix = "SpotPrice_"
+  )
+
+# #spot price from 2025-10-01
+# spotprice2 <- get_elspot("https://api.energidataservice.dk/dataset/DayAheadPrices", 
+#                          start = "2025-10-01T00:00", # denne ædres ikke da dataet starter her
+#                          end   = today_end_str # "2026-03-17T00:00"
+# ) %>% 
+#   rename(HourUTC = TimeUTC,
+#          HourDK = TimeDK,
+#          SpotPriceDKK = DayAheadPriceDKK #, SpotPriceEUR = DayAheadPriceEUR
+#          )
 
 # make spotprice2 to hourly data
-spotprice2_hourly <- spotprice2 %>%
+spotprice2_hourly <- spotprice_all %>%
   mutate(HourDK = ymd_hms(HourDK)) %>%   # convert to datetime
   filter(minute(HourDK) == 0)            # keep only rows where minutes = 0# 
 
 # Combine datasets
-spotprice_all <- bind_rows(spotprice1, spotprice2_hourly) %>%
+spotprice <- bind_rows(spotprice1, spotprice2_hourly) %>%
   arrange(HourDK)
 
 # hourly panel, each hour should be a separate “group”:
-spotprice_panel <- spotprice_all %>%
+spotprice_panel <- spotprice %>%
   mutate(
     Date = as_date(HourDK),
     Hour = hour(HourDK),
@@ -96,12 +145,18 @@ spotprice_panel <- spotprice_all %>%
   ) %>%
   group_by(Date, Hour) %>%  # handle repeated hours (DST)
   summarise(
-    SpotPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
-    #SpotPriceEUR = mean(SpotPriceEUR, na.rm = TRUE),
-    Weekday = first(Weekday),  # keep Weekday
-    Month = first(Month),      # keep Month
+    SpotPrice_DK1 = mean(SpotPrice_DK1, na.rm = TRUE),
+    SpotPrice_DK2 = mean(SpotPrice_DK2, na.rm = TRUE),
+    SpotPrice_DE = mean(SpotPrice_DE, na.rm = TRUE),
+    SpotPrice_NO2 = mean(SpotPrice_NO2, na.rm = TRUE),
+    SpotPrice_SE3 = mean(SpotPrice_SE3, na.rm = TRUE),
+    SpotPrice_SE4 = mean(SpotPrice_SE4, na.rm = TRUE),
+    Weekday = first(Weekday),
+    Month = first(Month),
     .groups = "drop"
   )
+
+
 
 spotprice_panel <- spotprice_panel %>%
   filter(Date >= as.Date("2023-01-01"))
@@ -130,18 +185,22 @@ spotprice_panel <- spotprice_panel %>%
 spotprice_panel <- spotprice_panel %>%
   group_by(Date) %>%
   arrange(Hour) %>%
-  fill(SpotPriceDKK, .direction = "down") %>%
+  fill(SpotPrice_DK1, SpotPrice_DK2, SpotPrice_DE, SpotPrice_NO2, SpotPrice_SE3, SpotPrice_SE4, 
+       .direction = "down") %>%
   ungroup()
 
+yj <- yeojohnson(spotprice_panel$SpotPrice_DK1)
+
 spotprice_panel <- spotprice_panel %>%
-  arrange(Hour, Date) %>%
-  group_by(Hour) %>%
+  arrange(Date, Hour) %>%
   mutate(
-    LogPrice = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 1),
-    LogPrice_100 = log(SpotPriceDKK + abs(min(SpotPriceDKK, na.rm = TRUE)) + 100),
-    LogPrice_asinh = log(SpotPriceDKK + sqrt(SpotPriceDKK^2 + 1))
-  ) %>%
-  ungroup()
+    LogPrice = log(SpotPrice_DK1 + abs(min(SpotPrice_DK1, na.rm = TRUE)) + 1),
+    LogPrice_100 = log(SpotPrice_DK1 + abs(min(SpotPrice_DK1, na.rm = TRUE)) + 100),
+    LogPrice_asinh = log(SpotPrice_DK1 + sqrt(SpotPrice_DK1^2 + 1)),
+    YJPrice = predict(yj)
+  )
+head(spotprice_panel)
+names(spotprice_panel)
 
 
 ####################################
@@ -157,7 +216,7 @@ spotprice_subset <- spotprice_panel %>%
   # )
 
 # plot af time 8, 16 og 24
-ggplot(spotprice_subset, aes(x = Date, y = SpotPriceDKK)) +
+ggplot(spotprice_subset, aes(x = Date, y = SpotPrice_DK1)) +
   geom_line(color = "steelblue") +
   facet_wrap(~ Hour, ncol = 1, scales = "free_y") +
    #facet_wrap(~ HourLabel, ncol = 1, scales = "free_y") +
@@ -178,7 +237,7 @@ ggsave("plots/Hourly/spotprice_hourly_Time0_8_16_2023.png", width = 10, height =
 avg_hourly <- spotprice_panel %>%
   group_by(Weekday, Hour) %>%
   summarise(
-    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    AvgPriceDKK = mean(SpotPrice_DK1, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -199,7 +258,7 @@ ggsave("plots/Hourly/spotprice_avg_hourly_weekday.png", width = 10, height = 6, 
 avg_hourly_month <- spotprice_panel %>%
   group_by(Month, Hour) %>%
   summarise(
-    AvgPriceDKK = mean(SpotPriceDKK, na.rm = TRUE),
+    AvgPriceDKK = mean(SpotPrice_DK1, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -235,7 +294,7 @@ plot_qq <- function(data, var, title = NULL, save_path = NULL,
   return(p)
 }
 
-plot_qq(spotprice_panel, SpotPriceDKK,
+plot_qq(spotprice_panel, SpotPrice_DK1,
         save_path = "plots/Hourly/qqplot_spotprice.png")
 
 plot_qq(spotprice_panel, LogPrice,
@@ -247,19 +306,24 @@ plot_qq(spotprice_panel, LogPrice_100,
 plot_qq(spotprice_panel, LogPrice_asinh,
         save_path = "plots/Hourly/qqplot_logPrice_asinh.png")
 
+plot_qq(spotprice_panel, YJPrice,
+        save_path = "plots/Hourly/qqplot_YJPrice.png")
+
 stats_summary <- data.frame(
-  Variable = c("SpotPriceDKK", "LogPrice", "LogPrice_100", "LogPrice_asinh"),
+  Variable = c("SpotPrice_DK1", "LogPrice", "LogPrice_100", "LogPrice_asinh", "YJPrice"),
   Skewness = c(
-    e1071::skewness(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
+    e1071::skewness(spotprice_panel$SpotPrice_DK1, na.rm = TRUE),
     e1071::skewness(spotprice_panel$LogPrice, na.rm = TRUE),
     e1071::skewness(spotprice_panel$LogPrice_100, na.rm = TRUE),
-    e1071::skewness(spotprice_panel$LogPrice_asinh, na.rm = TRUE)
+    e1071::skewness(spotprice_panel$LogPrice_asinh, na.rm = TRUE),
+    e1071::skewness(spotprice_panel$YJPrice, na.rm = TRUE)
   ),
   Kurtosis = c(
-    e1071::kurtosis(spotprice_panel$SpotPriceDKK, na.rm = TRUE),
+    e1071::kurtosis(spotprice_panel$SpotPrice_DK1, na.rm = TRUE),
     e1071::kurtosis(spotprice_panel$LogPrice, na.rm = TRUE),
     e1071::kurtosis(spotprice_panel$LogPrice_100, na.rm = TRUE),
-    e1071::kurtosis(spotprice_panel$LogPrice_asinh, na.rm = TRUE)
+    e1071::kurtosis(spotprice_panel$LogPrice_asinh, na.rm = TRUE),
+    e1071::kurtosis(spotprice_panel$YJPrice, na.rm = TRUE)
   )
 )
 
@@ -287,7 +351,7 @@ writeLines(
 
 ########
 # tables each hour
-quarterly_desc_stats <- function(data, spotprice, start_hour = 00, n_hours = 24) {
+hourly_desc_stats <- function(data, spotprice, start_hour = 00, n_hours = 24) {
 
   end_hour <- start_hour + n_hours - 1
 
@@ -317,15 +381,15 @@ quarterly_desc_stats <- function(data, spotprice, start_hour = 00, n_hours = 24)
   return(stats)
 }
 
-test_log_100 <- quarterly_desc_stats(spotprice_panel, "LogPrice_100")
+test_log_100 <- hourly_desc_stats(spotprice_panel, "LogPrice_100")
 
-test_asinh <- quarterly_desc_stats(spotprice_panel, "LogPrice_asinh")
+test_asinh <- hourly_desc_stats(spotprice_panel, "LogPrice_asinh")
 
-save_quarterly_latex_table_single <- function(data, spotprice,
+save_hourly_latex_table_single <- function(data, spotprice,
                                               start_hour = 0,
                                               n_hours = 24,
                                               output_dir = "Tables") {
-  table_stat <- quarterly_desc_stats(data, spotprice,
+  table_stat <- hourly_desc_stats(data, spotprice,
                                      start_hour = start_hour,
                                      n_hours = n_hours)
 
@@ -403,9 +467,10 @@ save_quarterly_latex_table_single <- function(data, spotprice,
   invisible(NULL)
 }
 
-save_quarterly_latex_table_single(spotprice_panel, "LogPrice")
-save_quarterly_latex_table_single(spotprice_panel, "LogPrice_100")
-save_quarterly_latex_table_single(spotprice_panel, "LogPrice_asinh")
+save_hourly_latex_table_single(spotprice_panel, "LogPrice")
+save_hourly_latex_table_single(spotprice_panel, "LogPrice_100")
+save_hourly_latex_table_single(spotprice_panel, "LogPrice_asinh")
+save_hourly_latex_table_single(spotprice_panel, "YJPrice")
 
 
 
@@ -414,13 +479,30 @@ save_quarterly_latex_table_single(spotprice_panel, "LogPrice_asinh")
 #########################
 start_data_2023 <- "2023-01-01"
 # https://www.energidataservice.dk/dso-electricity/ConsumptionConsumerCategoryHour
-get_consumption <- function(base, start = NULL, region = "Region Nordjylland") {
+# get_consumption <- function(base, start = NULL, region = "Region Nordjylland") {
+#   query <- list()
+#   
+#   if (!is.null(start)) query$start <- start
+#   
+#   if (!is.null(region)) {
+#     query$filter <- sprintf('{"RegionName":"%s"}', region)
+#   }
+#   
+#   res <- GET(base, query = query)
+#   stop_for_status(res)
+#   
+#   data <- content(res, as = "text", encoding = "UTF-8")
+#   parsed <- fromJSON(data, flatten = TRUE)
+#   
+#   return(as_tibble(parsed$records))
+# }
+#####
+get_consumption <- function(base, start = NULL) {
+  
   query <- list()
   
-  if (!is.null(start)) query$start <- start
-  
-  if (!is.null(region)) {
-    query$filter <- sprintf('{"RegionName":"%s"}', region)
+  if (!is.null(start)) {
+    query$start <- start
   }
   
   res <- GET(base, query = query)
@@ -429,59 +511,77 @@ get_consumption <- function(base, start = NULL, region = "Region Nordjylland") {
   data <- content(res, as = "text", encoding = "UTF-8")
   parsed <- fromJSON(data, flatten = TRUE)
   
-  return(as_tibble(parsed$records))
+  consumption <- as_tibble(parsed$records) %>%
+    
+    rename(
+      HourUTC = TimeUTC,
+      HourDK  = TimeDK
+    ) %>%
+    
+    mutate(
+      HourDK = ymd_hms(HourDK),
+      
+      RegionCode = case_when(
+        RegionName == "Region Nordjylland" ~ "NJ",
+        RegionName == "Region Midtjylland" ~ "MJ",
+        RegionName == "Region Syddanmark" ~ "SJ",
+        RegionName == "Region Hovedstaden" ~ "HS",
+        RegionName == "Region Sjælland" ~ "SJL",
+        TRUE ~ RegionName
+      )
+    ) %>%
+    
+    # IMPORTANT: remove internal duplication (consumer categories etc.)
+    group_by(HourDK, RegionCode) %>%
+    summarise(
+      ConsumptionkWh = sum(ConsumptionkWh, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    
+    # wide format: one column per region
+    pivot_wider(
+      names_from = RegionCode,
+      values_from = ConsumptionkWh,
+      names_prefix = "Consumption_"
+    ) %>%
+    
+    arrange(HourDK)
+  
+  return(consumption)
 }
 
-# Brug funktionen:
-consumption <- get_consumption("https://api.energidataservice.dk/dataset/ConsumptionConsumerCategoryHour?",
-                               start = start_data_2023)%>% 
-  rename(HourUTC = TimeUTC,
-         HourDK = TimeDK)
+consumption <- get_consumption(
+  "https://api.energidataservice.dk/dataset/ConsumptionConsumerCategoryHour?",
+  start = start_data_2023
+)
 
-consumption <- consumption %>%
-  mutate(HourDK = ymd_hms(HourDK)) %>%  
-  select(HourDK, ConsumptionkWh)
-
-consumption_panel <- consumption %>%
+consumption_q_panel <- consumption %>%
   mutate(
     Date = as_date(HourDK),
     Hour = hour(HourDK),
-    Weekday = wday(Date, label = TRUE, week_start = 1),  # Monday = 1
-    Month = month(Date, label = TRUE, abbr = TRUE)
-  ) %>%
-  group_by(Date, Hour) %>%   # hvis der også er dubletter her
-  summarise(
-    ConsumptionkWh = mean(ConsumptionkWh, na.rm = TRUE),
-    Weekday = first(Weekday),  # keep Weekday
-    Month = first(Month),
-    .groups = "drop"
+    Weekday = wday(Date, label = TRUE, week_start = 1),
+    Month = month(Date, label = TRUE, abbr = TRUE),
+    Weekday = first(Weekday),
+    Month = first(Month)
   )
 
-# tjekker om der er manglende time
-consumption_panel <- consumption_panel %>%
-  group_by(Date) %>%
-  mutate(n_hours = n()) %>%
-  ungroup()
-
-# Find dage med kun 23 timer
-consumption_panel %>%
+# dubletter eller missing (vinter til sommertid)
+consumption_q_panel %>%
   group_by(Date) %>%
   summarise(n_hours = n()) %>%
-  filter(n_hours == 23)
+  filter(n_hours != 24)
 
-# Udvid til fuld 24-timers struktur
-consumption_panel <- consumption_panel %>%
+consumption_q_panel <- consumption_q_panel %>%
   group_by(Date) %>%
-  complete(Hour = 0:23) %>%   # sikrer alle timer findes
+  complete(Hour = 0:23) %>%
   arrange(Date, Hour) %>%
   fill(Weekday, Month, .direction = "downup") %>%
   ungroup()
 
-# Udfyld manglende priser med forrige time
-consumption_panel <- consumption_panel %>%
+consumption_q_panel <- consumption_q_panel %>%
   group_by(Date) %>%
   arrange(Hour) %>%
-  fill(ConsumptionkWh, .direction = "down") %>%
+  fill(Consumption_HS, Consumption_MJ, Consumption_NJ, Consumption_SJ, Consumption_SJL, .direction = "down") %>%
   ungroup()
 
 #################
@@ -489,17 +589,38 @@ consumption_panel <- consumption_panel %>%
 #################
 # https://energidataservice.dk/tso-electricity/Forecasts_5Min
 # 3 variables for wind in 5 min interval agregate to 15 min interval with avg
-get_wind <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
+# get_wind <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
+#   
+#   query <- list()
+#   
+#   if (!is.null(start)) query$start <- start
+#   if (!is.null(end))   query$end   <- end
+#   
+#   # force PriceArea filter (default DK1)
+#   if (!is.null(pricearea)) {
+#     query$filter <- sprintf('{"PriceArea":"%s"}', pricearea)
+#   }
+#   
+#   res <- GET(base, query = query)
+#   stop_for_status(res)
+#   
+#   parsed <- fromJSON(content(res, "text", encoding = "UTF-8"), flatten = TRUE)
+#   
+#   as_tibble(parsed$records)
+# }
+# 
+# wind <- get_wind(
+#   base = "https://api.energidataservice.dk/dataset/ElectricityProdex5MinRealtime?",
+#   start = start_data_2023,
+#   end   = today_end_str
+# )
+
+get_wind <- function(base, start = NULL, end = NULL) {
   
   query <- list()
   
   if (!is.null(start)) query$start <- start
   if (!is.null(end))   query$end   <- end
-  
-  # force PriceArea filter (default DK1)
-  if (!is.null(pricearea)) {
-    query$filter <- sprintf('{"PriceArea":"%s"}', pricearea)
-  }
   
   res <- GET(base, query = query)
   stop_for_status(res)
@@ -511,59 +632,87 @@ get_wind <- function(base, start = NULL, end = NULL, pricearea = "DK1") {
 
 wind <- get_wind(
   base = "https://api.energidataservice.dk/dataset/ElectricityProdex5MinRealtime?",
-  start = start_data_2023,
+  start = one_year_ago_str,
   end   = today_end_str
-)
+) %>%
+  filter(PriceArea %in% c("DK1", "DK2"))
 
-wind_hourly_panel <- wind %>%
+wind_wide <- wind %>%
+  pivot_wider(
+    names_from = PriceArea,
+    values_from = c(OffshoreWindPower, OnshoreWindPower, SolarPower),
+    names_glue = "{.value}_{PriceArea}"
+  )
+
+
+wind_hourly_panel <- wind_wide %>%
   mutate(
     Minutes5DK = ymd_hms(Minutes5DK),
-    DateHour = floor_date(Minutes5DK, unit = "hour"),
-    Date = as_date(DateHour),
-    Hour = hour(DateHour),
+    Date = as_date(Minutes5DK),
+    Hour = hour(Minutes5DK),
+    Minute = minute(Minutes5DK),
     Weekday = wday(Date, label = TRUE, week_start = 1),
     Month = month(Date, label = TRUE, abbr = TRUE)
   ) %>%
-  group_by(DateHour) %>%
+  group_by(Date, Hour) %>%
   summarise(
-    OffshoreWindPower = mean(OffshoreWindPower, na.rm = TRUE),
-    OnshoreWindPower  = mean(OnshoreWindPower, na.rm = TRUE),
-    SolarPower        = mean(SolarPower, na.rm = TRUE),
-    Date = first(Date),
-    Hour = first(Hour),
+    ProductionLt100MW   = mean(ProductionLt100MW, na.rm = TRUE),
+    ProductionGe100MW   = mean(ProductionGe100MW, na.rm = TRUE),
+    
+    ExchangeGreatBelt   = mean(ExchangeGreatBelt, na.rm = TRUE),
+    ExchangeGermany     = mean(ExchangeGermany, na.rm = TRUE),
+    ExchangeNetherlands = mean(ExchangeNetherlands, na.rm = TRUE),
+    ExchangeGreatBritain= mean(ExchangeGreatBritain, na.rm = TRUE),
+    ExchangeNorway      = mean(ExchangeNorway, na.rm = TRUE),
+    ExchangeSweden      = mean(ExchangeSweden, na.rm = TRUE),
+    BornholmSE4         = mean(BornholmSE4, na.rm = TRUE),
+    
+    OffshoreWindPower_DK1 = mean(OffshoreWindPower_DK1, na.rm = TRUE),
+    OffshoreWindPower_DK2 = mean(OffshoreWindPower_DK2, na.rm = TRUE),
+    
+    OnshoreWindPower_DK1  = mean(OnshoreWindPower_DK1, na.rm = TRUE),
+    OnshoreWindPower_DK2  = mean(OnshoreWindPower_DK2, na.rm = TRUE),
+    
+    SolarPower_DK1        = mean(SolarPower_DK1, na.rm = TRUE),
+    SolarPower_DK2        = mean(SolarPower_DK2, na.rm = TRUE),
     Weekday = first(Weekday),
     Month = first(Month),
     .groups = "drop"
-  )
+  ) 
 
-# Find og log manglende timer pr. dag
-missing_hours_check <- wind_hourly_panel %>%
+# dubletter eller missing (vinter til sommertid)
+wind_hourly_panel %>%
   group_by(Date) %>%
-  summarise(n_hours = n_distinct(Hour), .groups = "drop") %>%
+  summarise(n_hours = n()) %>%
   filter(n_hours != 24)
 
-missing_hours_check
-
-# Rebuild fuld 24-timers struktur
 wind_hourly_panel <- wind_hourly_panel %>%
   group_by(Date) %>%
   complete(Hour = 0:23) %>%
   arrange(Date, Hour) %>%
+  fill(Weekday, Month, .direction = "downup") %>%
   ungroup()
 
-# Genopbyg DateTime (vigtigt)
-wind_hourly_panel <- wind_hourly_panel %>%
-  mutate(
-    DateTime = as.POSIXct(Date) + hours(Hour)
-  )
 
 wind_hourly_panel <- wind_hourly_panel %>%
   group_by(Date) %>%
-  fill(Weekday, Month, OffshoreWindPower, OnshoreWindPower, SolarPower, .direction = "downup") %>%
+  arrange(Hour) %>%
+  fill(
+    OffshoreWindPower_DK1, OffshoreWindPower_DK2,
+    OnshoreWindPower_DK1, OnshoreWindPower_DK2,
+    SolarPower_DK1, SolarPower_DK2,
+    ProductionLt100MW, ProductionGe100MW,
+    ExchangeGreatBelt, ExchangeGermany, ExchangeNetherlands,
+    ExchangeGreatBritain, ExchangeNorway, ExchangeSweden,
+    BornholmSE4,
+    .direction = "down"
+  ) %>%
   ungroup()
 
-NA_wind <- wind_hourly_panel %>%
-  filter(if_any(everything(), is.na))
+wind_hourly_panel %>%
+  group_by(Date) %>%
+  summarise(n_hours = n()) %>%
+  filter(n_hours != 24)
 
 ##########
 # tecnical error from energinet 2026-03-29
@@ -595,20 +744,14 @@ prev_day <- bad_day - 1
 test <- wind_hourly_panel %>% filter(Date=="2025-11-22")
 
 wind_hourly_panel <- wind_hourly_panel %>%
-  # remove bad day if it exists (safety)
   filter(Date != bad_day) %>%
-  
-  # copy previous day and relabel it as bad_day
   bind_rows(
     wind_hourly_panel %>%
       filter(Date == prev_day) %>%
       mutate(
-        Date = bad_day,
-        DateHour = DateHour + lubridate::days(1)
-      )
+        Date = bad_day)
   ) %>%
-  
-  arrange(DateHour)
+  arrange(Date, Hour)
 
 test1 <- wind_hourly_panel %>% filter(Date=="2025-11-22")
 
@@ -617,16 +760,22 @@ test1 <- wind_hourly_panel %>% filter(Date=="2025-11-22")
 ##################
 panel_data <- spotprice_panel %>%
   left_join(
-    consumption_panel %>%
-      select(Date, Hour, ConsumptionkWh),
+    consumption_q_panel %>%
+      select(Date, Hour, Consumption_HS, Consumption_MJ, Consumption_NJ, Consumption_SJ, Consumption_SJL),
     by = c("Date", "Hour")
   ) %>%
   left_join(
     wind_hourly_panel %>%
-      select(Date, Hour, OffshoreWindPower, OnshoreWindPower, SolarPower),
+      select(Date, Hour, OffshoreWindPower_DK1, OffshoreWindPower_DK2,
+             OnshoreWindPower_DK1, OnshoreWindPower_DK2,
+             SolarPower_DK1, SolarPower_DK2,
+             ProductionLt100MW, ProductionGe100MW,
+             ExchangeGreatBelt, ExchangeGermany, ExchangeNetherlands,
+             ExchangeGreatBritain, ExchangeNorway, ExchangeSweden,
+             BornholmSE4),
     by = c("Date", "Hour")
   ) %>% 
-  filter(!is.na(ConsumptionkWh))
+  filter(!is.na(Consumption_HS))
 
 
 # tjekker om alt er rigtigt
@@ -641,7 +790,6 @@ check_panel <- function(df, value_col) {
 check_panel(panel_data, "SpotPriceDKK")
 check_panel(panel_data, "ConsumptionkWh")
 check_panel(panel_data, "SpotPriceDKK")
-check_panel(panel_data, "ConsumptionkWh")
 check_panel(panel_data, "OffshoreWindPower")
 check_panel(panel_data, "OnshoreWindPower")
 check_panel(panel_data, "SolarPower")
@@ -650,9 +798,26 @@ check_panel(panel_data, "SolarPower")
 #### PANEL DATA ####
 ####################
 panel_data <- panel_data %>%
-  mutate(Date = as.Date(Date)
-  ) 
+  mutate(Date = as.Date(as.character(Date)))
 
+panel_data <- panel_data %>%
+  mutate(
+    Date = as.Date(as.character(Date)),
+    
+    Consumption_DK1 =
+      Consumption_MJ +
+      Consumption_NJ +
+      Consumption_SJ
+  )
+
+cutoff <- as.Date("2026-04-30")
+
+train_data <- panel_data %>% filter(Date <= cutoff)
+test_data  <- panel_data %>% filter(Date > cutoff)
+
+
+train_pdata <- pdata.frame(train_data, index = c("Hour", "Date"))
+test_pdata  <- pdata.frame(test_data,  index = c("Hour", "Date"))
 pdata <- pdata.frame(panel_data, index = c("Hour", "Date"))
 
 end_time <- Sys.time()

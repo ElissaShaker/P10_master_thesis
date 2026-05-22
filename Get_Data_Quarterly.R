@@ -21,6 +21,8 @@ library(broadcast)
 library(dynlm)
 library(forecast)
 library(car)
+library(corrplot)
+library(patchwork)
 
 setwd("~/Desktop/P10")
 ########################
@@ -688,7 +690,8 @@ consumption_q_panel <- consumption_q %>%
     Weekday = wday(Date, label = TRUE, week_start = 1),
     Month = month(Date, label = TRUE, abbr = TRUE),
     Weekday = first(Weekday),
-    Month = first(Month))
+    Month = first(Month)
+    )
 
 # dubletter eller missing (vinter til sommertid)
 consumption_q_panel %>%

@@ -2,20 +2,227 @@ path <- setwd("~/Desktop/P10")
 source("Get_Data_Quarterly.R")
 head(train_pdata$Quarter)
 names(train_data)
-
-y <- train_pdata$YJPrice
 ###########################
 #### PANEL DATA STATIC ####
 ###########################
-# Pooled Regression (PR)
-pr_model <- plm(y ~ lag(y, 1) + Consumption_DK1 + OffshoreWindPower_DK1 +
-      OnshoreWindPower_DK1 + SolarPower_DK1 + Weekday + Month,
-    data = train_pdata,
+# choose which transformation is best based on qqplot on the residuals
+run_panel_models <- function(y_var, data) {
+  # Formulas
+  static_formula <- as.formula(
+    paste(
+      y_var,
+      "~ Consumption_DK1 + OffshoreWindPower_DK1 +",
+      "OnshoreWindPower_DK1 + SolarPower_DK1"
+    )
+  )
+  
+  re_formula <- as.formula(
+    paste(
+      y_var,
+      "~ Consumption_DK1 + OffshoreWindPower_DK1 +",
+      "OnshoreWindPower_DK1 + SolarPower_DK1 + Weekday + Month"
+    )
+  )
+  
+  # Pooled Regression (PR)
+  pr_model <- plm(
+    static_formula,
+    data  = data,
     model = "pooling",
-    index = c("Quarter", "Date"))
+    index = c("Quarter", "Date")
+  )
+  
+  # Fixed Effects (FE)
+  fe_model <- plm(
+    static_formula,
+    data  = data,
+    model = "within",
+    index = c("Quarter", "Date")
+  )
+  
+  # Random Effects (RE)
+  re_model <- plm(
+    re_formula,
+    data  = data,
+    model = "random",
+    index = c("Quarter", "Date")
+  )
+  
+  # Residuals
+  pr_residuals <- residuals(pr_model)
+  fe_residuals <- residuals(fe_model)
+  re_residuals <- residuals(re_model)
+  
+  # Output
+  results <- list(
+    y_variable = y_var,
+    # Models
+    pooled_model = pr_model,
+    fixed_effects_model = fe_model,
+    random_effects_model = re_model,
+    # Summaries
+    pooled_summary = summary(pr_model),
+    fixed_effects_summary = summary(fe_model),
+    random_effects_summary = summary(re_model),
+    # Residuals
+    pooled_residuals = pr_residuals,
+    fixed_effects_residuals = fe_residuals,
+    random_effects_residuals = re_residuals
+  )
+  return(results)
+}
 
+results_spot <- run_panel_models("SpotPrice_DK1", train_pdata)
+results_log <- run_panel_models("LogPrice", train_pdata)
+results_log100 <- run_panel_models("LogPrice_100", train_pdata)
+results_asinh <- run_panel_models("LogPrice_asinh", train_pdata)
+results_yj <- run_panel_models("YJPrice", train_pdata)
+
+plot_model_qq <- function(results_obj, y_name) {
+  
+  p1 <- ggplot(
+    data.frame(residuals = results_obj$pooled_residuals),
+    aes(sample = residuals)
+  ) +
+    stat_qq(color = "blue") +
+    stat_qq_line(color = "red") +
+    labs(title = paste(y_name, "- Pooled OLS")) +
+    theme_minimal(base_size = 14)
+  
+  p2 <- ggplot(
+    data.frame(residuals = results_obj$fixed_effects_residuals),
+    aes(sample = residuals)
+  ) +
+    stat_qq(color = "blue") +
+    stat_qq_line(color = "red") +
+    labs(title = paste(y_name, "- Fixed Effects")) +
+    theme_minimal(base_size = 14)
+  
+  p3 <- ggplot(
+    data.frame(residuals = results_obj$random_effects_residuals),
+    aes(sample = residuals)
+  ) +
+    stat_qq(color = "blue") +
+    stat_qq_line(color = "red") +
+    labs(title = paste(y_name, "- Random Effects")) +
+    theme_minimal(base_size = 14)
+  
+  # Combine into one row
+  (p1 | p2 | p3)
+}
+
+results_list <- list(
+  SpotPrice_DK1 = results_spot,
+  LogPrice = results_log,
+  LogPrice_100 = results_log100,
+  LogPrice_asinh = results_asinh,
+  YJPrice = results_yj
+)
+
+qq_plots <- lapply(
+  names(results_list),
+  function(name) {
+    p <- plot_model_qq(results_list[[name]], name)
+    
+    ggsave(
+      filename = paste0("plots/Quarterly/QQplot_models_", name, ".png"),
+      plot = p,
+      width = 15,
+      height = 5,
+      dpi = 300
+    )
+    
+    p  }
+)
+
+qq_plots[[1]]
+qq_plots[[2]]
+qq_plots[[3]]
+qq_plots[[4]]
+qq_plots[[5]]
+
+
+
+
+all_results <- list(
+  SpotPrice_DK1 = results_spot,
+  LogPrice = results_log,
+  LogPrice_100 = results_log100,
+  LogPrice_asinh = results_asinh,
+  YJPrice = results_yj
+)
+
+extract_residuals_df <- function(results_list, data) {
+  
+  bind_rows(lapply(names(results_list), function(name) {
+    
+    res <- results_list[[name]]
+    
+    tibble(
+      Quarter = data$Quarter,
+      Date = data$Date,
+      Transformation = name,
+      
+      PR_res = as.numeric(res$pooled_residuals),
+      FE_res = as.numeric(res$fixed_effects_residuals),
+      RE_res = as.numeric(res$random_effects_residuals)
+    )
+  }))
+}
+residual_panel <- extract_residuals_df(all_results, train_pdata)
+
+
+residual_long <- residual_panel %>%
+  pivot_longer(
+    cols = c(PR_res, FE_res, RE_res),
+    names_to = "Model",
+    values_to = "Residual"
+  )
+
+
+residual_long <- residual_long %>%
+  mutate(
+    Transformation = factor(
+      Transformation,
+      levels = c(
+        "SpotPrice_DK1",
+        "LogPrice",
+        "LogPrice_100",
+        "LogPrice_asinh",
+        "YJPrice"
+      )
+    )
+  )
+
+residual_stats <- residual_long %>%
+  group_by(Transformation, Model) %>%
+  summarise(
+    Skewness = e1071::skewness(Residual, na.rm = TRUE),
+    Kurtosis = e1071::kurtosis(Residual, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+tex_residual_stats <- residual_stats %>%
+  kable(
+    format = "latex",
+    booktabs = TRUE,
+    digits = 3,
+    caption = "Skewness and Kurtosis of Residuals (Panel Models)",
+    label = "tab:quarterly_residual_skew_kurt_panel"
+  ) %>%
+  kable_styling(latex_options = "striped") %>%
+  as.character()
+
+writeLines(tex_residual_stats,
+           "Tables/quarterly_residual_skew_kurt_panel.tex")
+
+####################
+#### PANEL DATA ####
+####################
+y <- train_pdata$LogPrice_100
+# Pooled Regression (PR)
 pr_model <- plm(
-  y ~ Consumption_DK1 + OffshoreWindPower_DK1 + OnshoreWindPower_DK1 + SolarPower_DK1 + Weekday + Month,
+  y ~ Consumption_DK1 + OffshoreWindPower_DK1 + OnshoreWindPower_DK1 + SolarPower_DK1,
   data = train_pdata,
   model = "pooling",
   index = c("Quarter", "Date")
@@ -25,7 +232,7 @@ summary(pr_model)
 
 # Fixed Effects (FE)
 fe_model <- plm(
-  y ~ Consumption_DK1 + OffshoreWindPower_DK1 + OnshoreWindPower_DK1 + SolarPower_DK1 + Weekday + Month,
+  y ~ Consumption_DK1 + OffshoreWindPower_DK1 + OnshoreWindPower_DK1 + SolarPower_DK1,
   data = train_pdata,
   model = "within",
   index = c("Quarter", "Date")
@@ -85,7 +292,7 @@ panel_latex_table <- function(models,
     )
   
   # ---------- nicer names ----------
-  df$term <- recode(df$term,
+  df$term <- dplyr::recode(df$term,
                     Consumption_DK1  = "Consumption (DK1)",
                     OffshoreWindPower_DK1 = "Offshore Wind (DK1)",
                     OnshoreWindPower_DK1 = "Onshore Wind (DK1)",
@@ -217,7 +424,7 @@ panel_latex_table <- function(models,
   
   writeLines(latex, con = output_path)
   
-  return(invisible(output_path))
+  return((output_path))
 }
 models <- list(
   pr_model,
@@ -240,14 +447,14 @@ plmtest(pr_model, type = "bp")
 ## if p-val<0.05 => FE
 phtest(fe_model, re_model)
 
-
+train_pdata$LogPrice_100
 ######################
 #### FACTOR MODEL ####
 ######################
 df <- train_pdata %>%
   select(
     Date, Quarter,
-    YJPrice,
+    LogPrice_100,
     SpotPrice_DK2, SpotPrice_DE, SpotPrice_NO2, SpotPrice_SE3, SpotPrice_SE4, #Weekday, Month,
     Consumption_HS, Consumption_MJ, Consumption_NJ, Consumption_SJ, Consumption_SJL,
     OffshoreWindPower_DK1, OffshoreWindPower_DK2,
@@ -259,16 +466,61 @@ df <- train_pdata %>%
     BornholmSE4
   ) %>%
   na.omit()
+y <- df$LogPrice_100
+X_raw <- df %>% select(-Date, -Quarter, -LogPrice_100)
 
-X_raw <- df %>% select(-Date, -Quarter, -YJPrice)
+# cor_matrix <- cor(X_raw)
+# 
+# round(cor_matrix, 2)
+# 
+# cor_matrix <- cor(X_raw)
+# 
+# png("Plots/Quarterly/correlation_plot.png", width = 2000, height = 2000, res = 300)
+# 
+# corrplot(
+#   cor_matrix,
+#   method = "color",
+#   type = "upper",
+#   # order = "hclust",
+#   addCoef.col = "black",
+#   number.cex = 0.4,
+#   tl.cex = 0.5,
+#   tl.col = "black",
+#   tl.srt = 45,
+#   col = colorRampPalette(c("#B2182B", "white", "#2166AC"))(200),
+#   diag = FALSE
+# )
+# dev.off()
 
 # STEP 1 — PCA on X_i (choose factors)
 X_scaled <- scale(X_raw)
 
 pca_X <- prcomp(X_scaled, center = TRUE, scale. = TRUE)
 
+# png("Plots/Quarterly/scree_plot_X.png", width = 2000, height = 1400, res = 300)
 plot(pca_X, type = "l")   # scree plot
-summary(pca_X)
+# dev.off()
+# 
+# pca_sum <- summary(pca_X)
+# pca_sum
+# pca_table <- data.frame(
+#   # PC = paste0("PC", 1:6),
+#   Std_Dev = pca_sum$importance["Standard deviation", 1:6],
+#   Prop_Var = pca_sum$importance["Proportion of Variance", 1:6],
+#   Cum_Prop = pca_sum$importance["Cumulative Proportion", 1:6]
+# )
+# 
+# 
+# latex_code <- kable(
+#   pca_table,
+#   format = "latex",
+#   booktabs = TRUE,
+#   caption = "PCA Summary on X (First 6 Principal Components)",
+#   label = "tab:quarterly_pca_table_X"
+# )
+# 
+# writeLines(latex_code, "Tables/quarterly_pca_table_X.tex")
+
 
 r_x <- 4
 F_X <- pca_X$x[, 1:r_x, drop = FALSE]
@@ -293,15 +545,37 @@ res_matrix <- reshape2::acast(
 
 pca_res <- prcomp(res_matrix, center = TRUE, scale. = TRUE)
 
+# png("Plots/Quarterly/scree_plot_residuals.png", width = 2000, height = 1400, res = 300)
 plot(pca_res, type = "l")
-summary(pca_res)
+# dev.off()
+# 
+# pca_res_sum <- summary(pca_res)
+# 
+# pca_table <- data.frame(
+#   # PC = paste0("PC", 1:6),
+#   Std_Dev = pca_res_sum$importance["Standard deviation", 1:6],
+#   Prop_Var = pca_res_sum$importance["Proportion of Variance", 1:6],
+#   Cum_Prop = pca_res_sum$importance["Cumulative Proportion", 1:6]
+# )
+# 
+# 
+# latex_code <- kable(
+#   pca_table,
+#   format = "latex",
+#   booktabs = TRUE,
+#   caption = "PCA Summary on the residuals (First 6 Principal Components)",
+#   label = "tab:quarterly_pca_table_res"
+# )
+# 
+# writeLines(latex_code, "Tables/quarterly_pca_table_res.tex")
 
-r_e <- 3
+
+r_e <- 2
 F_e <- pca_res$x[, 1:r_e, drop = FALSE]
 
 # STEP 4 — Construct moment condition
-Z <- cbind(1, F_X)
-colnames(Z)[1] <- "Intercept"
+Z <- cbind(Intercept = 1, F_X)
+Z <- as.matrix(Z)
 
 # Compute residuals (aligned) 
 u_hat <- df_stage1$residuals_1
@@ -319,6 +593,45 @@ names(correction) <- names(moment_part)
 mu_bar <- moment_part - correction
 mu_bar
 
+
+gmm_moments <- function(theta, y, Z) {
+  
+  # Z = (Intercept, F_X)
+  # theta = (alpha, beta_1, ..., beta_r)
+  
+  u <- y - Z %*% theta
+  
+  g <- colMeans(Z * as.numeric(u))
+  
+  return(g)
+}
+
+gmm_objective <- function(theta, y, Z, W) {
+  
+  g <- gmm_moments(theta, y, Z)
+  
+  as.numeric(t(g) %*% W %*% g)
+}
+
+init <- coef(lm(y ~ F_X))
+init <- as.numeric(init)
+
+names(init) <- colnames(Z)
+
+W <- diag(ncol(Z))
+
+gmm_fit <- optim(
+  par = init,
+  fn = gmm_objective,
+  y = y,
+  Z = Z,
+  W = W,
+  method = "BFGS"
+)
+theta_hat <- gmm_fit$par
+theta_hat
+
+
 #########################
 #### FORECAST FACTOR ####
 #########################
@@ -329,37 +642,37 @@ N <- ncol(res_matrix)
 # Forecast X-factors F_X
 F_X_ts <- as.data.frame(F_X)
 
-F_X_fcast <- apply(F_X_ts, 2, function(x) {
+F_X_fcast <- sapply(F_X_ts, function(x) {
   forecast(auto.arima(x), h = h)$mean
 })
+
+F_X_fcast <- as.matrix(F_X_fcast)   # h × r_x
 
 # Forecast residual factors F_e
 F_e_ts <- as.data.frame(F_e)
 
-F_e_fcast <- apply(F_e_ts, 2, function(x) {
+F_e_fcast <- sapply(F_e_ts, function(x) {
   forecast(auto.arima(x), h = h)$mean
 })
 
-# Reconstruct forecasted residual matrix
-# dimensions: 3 days × r_e
-F_e_fcast
+F_e_fcast <- as.matrix(F_e_fcast)   # h × r_e
+
 # lambda_hat <- matrix(colMeans(F_e), nrow = N, ncol = r_e, byrow = TRUE)
 lambda_hat <- solve(t(F_e) %*% F_e) %*% t(F_e) %*% res_matrix
+lambda_hat <- as.matrix(lambda_hat)   # r_e × N
 
-# Forecast residual component:
-residual_forecast <- F_e_fcast %*% lambda_hat
+beta_lambda <- lambda_hat
 
-# Forecast common component
 beta_hat <- coef(ols_stage1)
+beta_hat <- as.numeric(beta_hat)
 
 F_X_fcast_mat <- as.matrix(F_X_fcast)
 
 common_forecast <- F_X_fcast_mat %*% beta_hat[-1] + beta_hat[1]
-common_forecast_mat <- matrix(
-  common_forecast,
-  nrow = h,
-  ncol = N
-)
+common_forecast_mat <- matrix(common_forecast, nrow = h, ncol = N)
+
+# Forecast residual component:
+residual_forecast <- F_e_fcast %*% lambda_hat
 
 final_forecast <- common_forecast_mat + residual_forecast
 colnames(final_forecast) <- colnames(res_matrix)
@@ -388,20 +701,23 @@ forecast_long <- as.data.frame(final_forecast) %>%
   ) %>%
   select(Date, Quarter, Forecast_YJ)
 
-# panel_data$SpotPrice_back <- car::inverseTransform(yj, panel_data$YJPrice)
-# forecast_long$Forecast_Price <- inverseTransform(yj, forecast_long$Forecast_YJ)
+# forecast_long$Forecast_Price <- predict(yj, newdata = forecast_long$Forecast_YJ, 
+#                                         inverse = TRUE)
+
+forecast_long$Forecast_Price <- exp(forecast_long$Forecast_YJ) -
+  (abs(min(train_data$SpotPrice_DK1, na.rm = TRUE)) + 100)
 
 plot_data <- panel_data %>%
-  select(Date, Quarter, YJPrice, QuarterLabel) %>% 
+  select(Date, Quarter, SpotPrice_DK1, QuarterLabel) %>% 
   left_join(
-    forecast_long,
+    forecast_long %>% select(-Forecast_YJ),
     by = c("Date", "Quarter")
   ) %>% 
   filter(Date <= as.Date("2026-05-05"),
-         Date >= as.Date("2026-04-01") ) %>% 
+         Date >= as.Date("2026-04-20") ) %>% 
   arrange(Date, Quarter)
 
-plot_quarter_grid <- function(data, quarters) {
+plot_quarter_grid <- function(data, quarters, save = FALSE) {
   
   # filter selected quarters
   df <- data %>%
@@ -410,21 +726,21 @@ plot_quarter_grid <- function(data, quarters) {
   
   # detect forecast start date
   forecast_start <- df %>%
-    filter(!is.na(Forecast_YJ)) %>%
+    filter(!is.na(Forecast_Price)) %>%
     summarise(start_date = min(Date)) %>%
     pull(start_date)
   
   # reshape to long format
   df_long <- df %>%
     pivot_longer(
-      cols = c(YJPrice, Forecast_YJ),
+      cols = c(SpotPrice_DK1, Forecast_Price),
       names_to = "Type",
       values_to = "Value"
     ) %>%
     mutate(
       Type = dplyr::recode(Type,
-                    YJPrice = "Observed",
-                    Forecast_YJ = "Forecast")
+                    SpotPrice_DK1 = "Observed",
+                    Forecast_Price = "Forecast")
     )
   
   # plot
@@ -469,14 +785,15 @@ plot_quarter_grid <- function(data, quarters) {
     ".png"
   )
   
-  ggsave(
-    filename,
-    p,
-    width = 10,
-    height = 6,
-    dpi = 600
-  )
-  
+  if (save) {
+    ggsave(
+      filename = filename,
+      plot = p,
+      width = 10,
+      height = 6,
+      dpi = 600
+    )
+  }  
   return(p)
 }
 
@@ -485,12 +802,217 @@ plot_quarter_grid(plot_data, quarters = 0:15) # 0-4
 plot_quarter_grid(plot_data, quarters = 16:31) # 4-8
 plot_quarter_grid(plot_data, quarters = 32:47) # 8-12
 plot_quarter_grid(plot_data, quarters = 48:63) # 12-16 
-plot_quarter_grid(plot_data, quarters = 64:79) # 16 - 20
+plot_quarter_grid(plot_data, quarters = 64:79) # 16-20
 plot_quarter_grid(plot_data, quarters = 80:95) # 20-24
 
+# 
+# 
+# 
+# 
+# plot_data_ts <- plot_data %>%
+#   mutate(
+#     DateTime = as.POSIXct(Date) + Quarter * 15 * 60
+#   ) %>%
+#   arrange(DateTime)
+# 
+# p_forecast <-  ggplot(plot_data_ts, aes(x = DateTime)) +
+#   geom_line(
+#     aes(y = SpotPrice_DK1, color = "Observed"),
+#     linewidth = 0.8
+#   ) +
+#   geom_line(
+#     aes(y = Forecast_Price, color = "Forecast"),
+#     linewidth = 0.8
+#   ) +
+#   labs(
+#     x = "Time",
+#     y = "Price",
+#     color = "",
+#     title = "Observed vs Forecasted Spot Prices"
+#   ) +
+#   theme_minimal()
+# 
 
 
+# =========================================================
+# 1. Quarter lookup table
+# =========================================================
 
+quarter_lookup <- train_data %>%
+  distinct(Quarter, Hour, Minute)
+
+# =========================================================
+# 2. Add Hour/Minute to forecasts
+# =========================================================
+
+forecast_plot <- forecast_long %>%
+  
+  left_join(
+    quarter_lookup,
+    by = "Quarter"
+  ) %>%
+  
+  mutate(
+    DateTime = as.POSIXct(
+      paste(Date, sprintf("%02d:%02d", Hour, Minute))
+    )
+  ) %>%
+  
+  arrange(DateTime)
+
+# =========================================================
+# 3. Historical data
+# =========================================================
+
+history_plot <- panel_data %>%
+  
+  select(
+    Date,
+    Quarter,
+    Hour,
+    Minute,
+    SpotPrice_DK1
+  ) %>%
+  
+  filter(
+    Date >= as.Date("2026-04-20"),
+    Date <= as.Date("2026-05-01")
+  ) %>%
+  
+  mutate(
+    DateTime = as.POSIXct(
+      paste(Date, sprintf("%02d:%02d", Hour, Minute))
+    )
+  ) %>%
+  
+  arrange(DateTime)
+
+# =========================================================
+# 4. Actual realized future prices
+# =========================================================
+
+actual_plot <- test_data %>%
+  
+  filter(
+    Date >= min(forecast_long$Date),
+    Date <= max(forecast_long$Date)
+  ) %>%
+  
+  select(
+    Date,
+    Quarter,
+    Hour,
+    Minute,
+    SpotPrice_DK1
+  ) %>%
+  
+  mutate(
+    DateTime = as.POSIXct(
+      paste(Date, sprintf("%02d:%02d", Hour, Minute))
+    )
+  ) %>%
+  
+  arrange(DateTime)
+
+# =========================================================
+# 5. Connect forecast to historical series
+# =========================================================
+
+last_hist_point <- history_plot %>%
+  
+  slice_tail(n = 1) %>%
+  
+  transmute(
+    DateTime,
+    Forecast_Price = SpotPrice_DK1
+  )
+
+forecast_plot_connected <- bind_rows(
+  
+  last_hist_point,
+  
+  forecast_plot %>%
+    select(DateTime, Forecast_Price)
+)
+
+actual_plot_connected <- bind_rows(
+  
+  last_hist_point %>%
+    transmute(
+      DateTime,
+      SpotPrice_DK1 = Forecast_Price
+    ),
+  
+  actual_plot %>%
+    select(DateTime, SpotPrice_DK1)
+)
+
+# =========================================================
+# 6. Plot
+# =========================================================
+
+p_forecast <- ggplot() +
+  
+  # Historical
+  geom_line(
+    data = history_plot,
+    aes(DateTime, SpotPrice_DK1, color = "Historical"),
+    linewidth = 0.35
+  ) +
+  
+  # Forecast
+  geom_line(
+    data = forecast_plot_connected,
+    aes(DateTime, Forecast_Price, color = "Forecast"),
+    linewidth = 0.7
+  ) +
+  
+  # Actual realized future
+  geom_line(
+    data = actual_plot_connected,
+    aes(DateTime, SpotPrice_DK1, color = "Actual"),
+    linewidth = 0.5,
+    linetype = "22"
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Historical" = "black",
+      "Forecast" = "red",
+      "Actual" = "blue"
+    )
+  ) +
+  
+  scale_x_datetime(
+    date_breaks = "1 day",
+    date_labels = "%b %d"
+  ) +
+  
+  labs(
+    title = "Factor Model Forecast vs Actual",
+    x = "Date",
+    y = "Spot Price",
+    color = ""
+  ) +
+  
+  theme_minimal() +
+  
+  theme(
+    legend.position = "right",
+    
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+ggsave(
+  filename = "plots/Quarterly/Forecast/forecast_all.png",
+  plot = p_forecast,
+  width = 12,
+  height = 6,
+  dpi = 300
+)
 # ##########################
 # #### DYNAMIC FE MODEL ####
 # ##########################
