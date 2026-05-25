@@ -447,897 +447,354 @@ plmtest(pr_model, type = "bp")
 ## if p-val<0.05 => FE
 phtest(fe_model, re_model)
 
-train_pdata$LogPrice_100
-######################
-#### FACTOR MODEL ####
-######################
-df <- train_pdata %>%
-  select(
-    Date, Quarter,
-    LogPrice_100,
-    SpotPrice_DK2, SpotPrice_DE, SpotPrice_NO2, SpotPrice_SE3, SpotPrice_SE4, #Weekday, Month,
-    Consumption_HS, Consumption_MJ, Consumption_NJ, Consumption_SJ, Consumption_SJL,
-    OffshoreWindPower_DK1, OffshoreWindPower_DK2,
-    OnshoreWindPower_DK1, OnshoreWindPower_DK2,
-    SolarPower_DK1, SolarPower_DK2,
-    ProductionLt100MW, ProductionGe100MW,
-    ExchangeGermany, ExchangeNetherlands,
-    ExchangeGreatBritain, ExchangeNorway, ExchangeSweden,
-    BornholmSE4
-  ) %>%
-  na.omit()
-y <- df$LogPrice_100
-X_raw <- df %>% select(-Date, -Quarter, -LogPrice_100)
 
-# cor_matrix <- cor(X_raw)
-# 
-# round(cor_matrix, 2)
-# 
-# cor_matrix <- cor(X_raw)
-# 
-# png("Plots/Quarterly/correlation_plot.png", width = 2000, height = 2000, res = 300)
-# 
-# corrplot(
-#   cor_matrix,
-#   method = "color",
-#   type = "upper",
-#   # order = "hclust",
-#   addCoef.col = "black",
-#   number.cex = 0.4,
-#   tl.cex = 0.5,
-#   tl.col = "black",
-#   tl.srt = 45,
-#   col = colorRampPalette(c("#B2182B", "white", "#2166AC"))(200),
-#   diag = FALSE
-# )
-# dev.off()
+# =========================================================
+# HETEROSKEDASTICITY TESTS
+# =========================================================
 
-# STEP 1 — PCA on X_i (choose factors)
-X_scaled <- scale(X_raw)
+cat("\n================ HETEROSKEDASTICITY TESTS ================\n")
+# Run tests
+bp_pr <- bptest(pr_model)
+bp_fe <- bptest(fe_model)
+bp_re <- bptest(re_model)
 
-pca_X <- prcomp(X_scaled, center = TRUE, scale. = TRUE)
-
-# png("Plots/Quarterly/scree_plot_X.png", width = 2000, height = 1400, res = 300)
-plot(pca_X, type = "l")   # scree plot
-# dev.off()
-# 
-# pca_sum <- summary(pca_X)
-# pca_sum
-# pca_table <- data.frame(
-#   # PC = paste0("PC", 1:6),
-#   Std_Dev = pca_sum$importance["Standard deviation", 1:6],
-#   Prop_Var = pca_sum$importance["Proportion of Variance", 1:6],
-#   Cum_Prop = pca_sum$importance["Cumulative Proportion", 1:6]
-# )
-# 
-# 
-# latex_code <- kable(
-#   pca_table,
-#   format = "latex",
-#   booktabs = TRUE,
-#   caption = "PCA Summary on X (First 6 Principal Components)",
-#   label = "tab:quarterly_pca_table_X"
-# )
-# 
-# writeLines(latex_code, "Tables/quarterly_pca_table_X.tex")
-
-
-r_x <- 4
-F_X <- pca_X$x[, 1:r_x, drop = FALSE]
-
-# STEP 2 — OLS estimation of Y_i − X_i β
-df_stage1 <- data.frame(
-  df[, c("Date", "Quarter")],
-  y = y,
-  F_X
-)
-
-ols_stage1 <- lm(y ~ F_X, data = df_stage1)
-
-df_stage1$residuals_1 <- residuals(ols_stage1)
-
-# STEP 3 — PCA on residual structure → \widehat{F}^e
-res_matrix <- reshape2::acast(
-  df_stage1,
-  Date ~ Quarter,
-  value.var = "residuals_1"
-)
-
-pca_res <- prcomp(res_matrix, center = TRUE, scale. = TRUE)
-
-# png("Plots/Quarterly/scree_plot_residuals.png", width = 2000, height = 1400, res = 300)
-plot(pca_res, type = "l")
-# dev.off()
-# 
-# pca_res_sum <- summary(pca_res)
-# 
-# pca_table <- data.frame(
-#   # PC = paste0("PC", 1:6),
-#   Std_Dev = pca_res_sum$importance["Standard deviation", 1:6],
-#   Prop_Var = pca_res_sum$importance["Proportion of Variance", 1:6],
-#   Cum_Prop = pca_res_sum$importance["Cumulative Proportion", 1:6]
-# )
-# 
-# 
-# latex_code <- kable(
-#   pca_table,
-#   format = "latex",
-#   booktabs = TRUE,
-#   caption = "PCA Summary on the residuals (First 6 Principal Components)",
-#   label = "tab:quarterly_pca_table_res"
-# )
-# 
-# writeLines(latex_code, "Tables/quarterly_pca_table_res.tex")
-
-
-r_e <- 2
-F_e <- pca_res$x[, 1:r_e, drop = FALSE]
-
-# STEP 4 — Construct moment condition
-Z <- cbind(Intercept = 1, F_X)
-Z <- as.matrix(Z)
-
-# Compute residuals (aligned) 
-u_hat <- df_stage1$residuals_1
-
-moment_part <- colMeans(Z * u_hat) # 1/N ∑Z_i' u_i
-
-# STEP 4b — Build correction term S(F^e ⊗ Id)g
-# correction <- F_e
-# align dimensions: map F_e into same dimension as Z moments
-g_hat <- colMeans(F_e)
-correction <- rep(g_hat, length.out = length(moment_part))
-names(correction) <- names(moment_part)
-
-# FINAL STEP — estimator
-mu_bar <- moment_part - correction
-mu_bar
-
-
-gmm_moments <- function(theta, y, Z) {
-  
-  # Z = (Intercept, F_X)
-  # theta = (alpha, beta_1, ..., beta_r)
-  
-  u <- y - Z %*% theta
-  
-  g <- colMeans(Z * as.numeric(u))
-  
-  return(g)
+# Function to extract correctly formatted p-value
+get_bp_row <- function(bp, name) {
+  data.frame(
+    Model = name,
+    `BP Statistic` = unname(bp$statistic),
+    `df` = unname(bp$parameter),
+    `p-value` = format.pval(bp$p.value, digits = 3, eps = 2.2e-16)
+  )
 }
 
-gmm_objective <- function(theta, y, Z, W) {
-  
-  g <- gmm_moments(theta, y, Z)
-  
-  as.numeric(t(g) %*% W %*% g)
+# Combine results
+bp_table <- bind_rows(
+  get_bp_row(bp_pr, "PR"),
+  get_bp_row(bp_fe, "FE"),
+  get_bp_row(bp_re, "RE")
+)
+
+# Create LaTeX table
+latex_table <- kable(
+  bp_table,
+  format = "latex",
+  booktabs = TRUE,
+  digits = 4,
+  caption = "Breusch-Pagan Heteroskedasticity Tests",
+  label = "quarterly_bptest_results"
+) %>%
+  kable_styling(latex_options = c("hold_position"))
+
+# Save to .tex file
+writeLines(latex_table, "Tables/quarterly_bptest_results.tex")
+
+# =========================================================
+# SERIAL CORRELATION TESTS
+# =========================================================
+
+cat("\n================ SERIAL CORRELATION TESTS ================\n")
+
+
+pbgtest_fe <- pbgtest(fe_model)
+pbgtest_re <- pbgtest(re_model)
+
+# Function to extract correctly formatted p-value
+get_pbg_row <- function(pbg, name) {
+  data.frame(
+    Model = name,
+    `PBG Statistic` = unname(pbg$statistic),
+    `df` = unname(pbg$parameter),
+    `p-value` = format.pval(pbg$p.value, digits = 3, eps = 2.2e-16)
+  )
 }
 
-init <- coef(lm(y ~ F_X))
-init <- as.numeric(init)
-
-names(init) <- colnames(Z)
-
-W <- diag(ncol(Z))
-
-gmm_fit <- optim(
-  par = init,
-  fn = gmm_objective,
-  y = y,
-  Z = Z,
-  W = W,
-  method = "BFGS"
+# Combine results
+pbg_table <- bind_rows(
+  get_bp_row(pbgtest_fe, "FE"),
+  get_bp_row(pbgtest_re, "RE")
 )
-theta_hat <- gmm_fit$par
-theta_hat
+
+# Create LaTeX table
+latex_table <- kable(
+  pbg_table,
+  format = "latex",
+  booktabs = TRUE,
+  digits = 4,
+  caption = "Breusch–Godfrey Serial Correlation Tests",
+  label = "quarterly_pbgtest_results"
+) %>%
+  kable_styling(latex_options = c("hold_position"))
+
+# Save to .tex file
+writeLines(latex_table, "Tables/quarterly_pbgtest_results.tex")
 
 
-#########################
-#### FORECAST FACTOR ####
-#########################
-h <- 5
-T <- nrow(res_matrix)
-N <- ncol(res_matrix)
+# =========================================================
+# CROSS-SECTIONAL DEPENDENCE
+# =========================================================
 
-# Forecast X-factors F_X
-F_X_ts <- as.data.frame(F_X)
+cat("\n================ CROSS-SECTIONAL DEPENDENCE ================\n")
 
-F_X_fcast <- sapply(F_X_ts, function(x) {
-  forecast(auto.arima(x), h = h)$mean
-})
-
-F_X_fcast <- as.matrix(F_X_fcast)   # h × r_x
-
-# Forecast residual factors F_e
-F_e_ts <- as.data.frame(F_e)
-
-F_e_fcast <- sapply(F_e_ts, function(x) {
-  forecast(auto.arima(x), h = h)$mean
-})
-
-F_e_fcast <- as.matrix(F_e_fcast)   # h × r_e
-
-# lambda_hat <- matrix(colMeans(F_e), nrow = N, ncol = r_e, byrow = TRUE)
-lambda_hat <- solve(t(F_e) %*% F_e) %*% t(F_e) %*% res_matrix
-lambda_hat <- as.matrix(lambda_hat)   # r_e × N
-
-beta_lambda <- lambda_hat
-
-beta_hat <- coef(ols_stage1)
-beta_hat <- as.numeric(beta_hat)
-
-F_X_fcast_mat <- as.matrix(F_X_fcast)
-
-common_forecast <- F_X_fcast_mat %*% beta_hat[-1] + beta_hat[1]
-common_forecast_mat <- matrix(common_forecast, nrow = h, ncol = N)
-
-# Forecast residual component:
-residual_forecast <- F_e_fcast %*% lambda_hat
-
-final_forecast <- common_forecast_mat + residual_forecast
-colnames(final_forecast) <- colnames(res_matrix)
-rownames(final_forecast) <- paste0(
-  "Day_", 1:h
-)
-final_forecast
-
-# start of forecast horizon
-start_date <- as.Date("2026-05-01")
-
-forecast_long <- as.data.frame(final_forecast) %>%
-  mutate(Day = rownames(final_forecast)) %>%
-  pivot_longer(
-    cols = -Day,
-    names_to = "Quarter",
-    values_to = "Forecast_YJ"
-  ) %>%
-  group_by(Day) %>%
-  mutate(
-    Quarter = row_number() - 1   # ← HERE
-  ) %>%
-  ungroup() %>%
-  mutate(
-    Date = as.Date(start_date + as.integer(substr(Day, 5, 5)) - 1)
-  ) %>%
-  select(Date, Quarter, Forecast_YJ)
-
-# forecast_long$Forecast_Price <- predict(yj, newdata = forecast_long$Forecast_YJ, 
-#                                         inverse = TRUE)
-
-forecast_long$Forecast_Price <- exp(forecast_long$Forecast_YJ) -
-  (abs(min(train_data$SpotPrice_DK1, na.rm = TRUE)) + 100)
-
-plot_data <- panel_data %>%
-  select(Date, Quarter, SpotPrice_DK1, QuarterLabel) %>% 
-  left_join(
-    forecast_long %>% select(-Forecast_YJ),
-    by = c("Date", "Quarter")
-  ) %>% 
-  filter(Date <= as.Date("2026-05-05"),
-         Date >= as.Date("2026-04-20") ) %>% 
-  arrange(Date, Quarter)
-
-plot_quarter_grid <- function(data, quarters, save = FALSE) {
+pcdtest_fe <- pcdtest(fe_model)
+pcdtest_re <- pcdtest(re_model)
+# Robust extractor (handles different pcdtest structures)
+get_pcd_row <- function(pcd, name) {
   
-  # filter selected quarters
-  df <- data %>%
-    filter(Quarter %in% quarters) %>%
-    arrange(Date, Quarter)
+  stat <- as.numeric(pcd$statistic)
   
-  # detect forecast start date
-  forecast_start <- df %>%
-    filter(!is.na(Forecast_Price)) %>%
-    summarise(start_date = min(Date)) %>%
-    pull(start_date)
+  # pcdtest sometimes stores p-value differently
+  pval <- if (!is.null(pcd$p.value)) {
+    pcd$p.value
+  } else if (!is.null(pcd$p.value[[1]])) {
+    pcd$p.value[[1]]
+  } else {
+    NA
+  }
   
-  # reshape to long format
-  df_long <- df %>%
-    pivot_longer(
-      cols = c(SpotPrice_DK1, Forecast_Price),
-      names_to = "Type",
-      values_to = "Value"
-    ) %>%
-    mutate(
-      Type = dplyr::recode(Type,
-                    SpotPrice_DK1 = "Observed",
-                    Forecast_Price = "Forecast")
-    )
-  
-  # plot
-  p <- ggplot(df_long, aes(x = Date, y = Value, color = Type)) +
-    
-    # vertical dashed line at forecast start
-    geom_vline(
-      xintercept = forecast_start,
-      linetype = "dashed",
-      color = "black",
-      linewidth = 0.6
-    ) +
-    
-    geom_line(linewidth = 0.4, na.rm = TRUE) +
-    
-    facet_wrap(~QuarterLabel, ncol = 4, nrow = 4, scales = "free_y") +
-    
-    scale_color_manual(
-      values = c(
-        "Observed" = "black",
-        "Forecast" = "blue"
-      )
-    ) +
-    
-    labs(
-      x = NULL,
-      y = NULL,
-      color = NULL
-    ) +
-    
-    theme_minimal() +
-    theme(
-      strip.text = element_text(size = 10),
-      legend.position = "bottom"
-    )
-  
-  filename <- paste0(
-    "plots/Quarterly/Forecast/QuarterlyForecast_Q",
-    min(quarters),
-    "_to_",
-    max(quarters),
-    ".png"
+  data.frame(
+    Model = name,
+    `CD Statistic` = stat,
+    `p-value` = format.pval(pval, digits = 3, eps = 2.2e-16)
   )
-  
-  if (save) {
-    ggsave(
-      filename = filename,
-      plot = p,
-      width = 10,
-      height = 6,
-      dpi = 600
-    )
-  }  
-  return(p)
 }
 
-# Example
-plot_quarter_grid(plot_data, quarters = 0:15) # 0-4
-plot_quarter_grid(plot_data, quarters = 16:31) # 4-8
-plot_quarter_grid(plot_data, quarters = 32:47) # 8-12
-plot_quarter_grid(plot_data, quarters = 48:63) # 12-16 
-plot_quarter_grid(plot_data, quarters = 64:79) # 16-20
-plot_quarter_grid(plot_data, quarters = 80:95) # 20-24
+# Combine results
+pcd_table <- bind_rows(
+  get_pcd_row(pcdtest_fe, "FE"),
+  get_pcd_row(pcdtest_re, "RE")
+)
 
-# 
-# 
-# 
-# 
-# plot_data_ts <- plot_data %>%
-#   mutate(
-#     DateTime = as.POSIXct(Date) + Quarter * 15 * 60
-#   ) %>%
-#   arrange(DateTime)
-# 
-# p_forecast <-  ggplot(plot_data_ts, aes(x = DateTime)) +
-#   geom_line(
-#     aes(y = SpotPrice_DK1, color = "Observed"),
-#     linewidth = 0.8
-#   ) +
-#   geom_line(
-#     aes(y = Forecast_Price, color = "Forecast"),
-#     linewidth = 0.8
-#   ) +
-#   labs(
-#     x = "Time",
-#     y = "Price",
-#     color = "",
-#     title = "Observed vs Forecasted Spot Prices"
-#   ) +
-#   theme_minimal()
-# 
+# Create LaTeX table
+latex_table <- kable(
+  pcd_table,
+  format = "latex",
+  booktabs = TRUE,
+  digits = 4,
+  caption = "Pesaran's CD or Breusch–Pagan's LM tests for cross sectional dependence",
+  label = "quarterly_pcd_test_results"
+) %>%
+  kable_styling(latex_options = c("hold_position"))
 
+# Save to .tex file
+writeLines(latex_table, "Tables/quarterly_pcd_test_results.tex")
 
 # =========================================================
-# 1. Quarter lookup table
+# ROBUST STANDARD ERRORS
 # =========================================================
 
-quarter_lookup <- train_data %>%
-  distinct(Quarter, Hour, Minute)
+cat("\n================ ROBUST STANDARD ERRORS ================\n")
 
-# =========================================================
-# 2. Add Hour/Minute to forecasts
-# =========================================================
-
-forecast_plot <- forecast_long %>%
-  
-  left_join(
-    quarter_lookup,
-    by = "Quarter"
-  ) %>%
-  
-  mutate(
-    DateTime = as.POSIXct(
-      paste(Date, sprintf("%02d:%02d", Hour, Minute))
-    )
-  ) %>%
-  
-  arrange(DateTime)
-
-# =========================================================
-# 3. Historical data
-# =========================================================
-
-history_plot <- panel_data %>%
-  
-  select(
-    Date,
-    Quarter,
-    Hour,
-    Minute,
-    SpotPrice_DK1
-  ) %>%
-  
-  filter(
-    Date >= as.Date("2026-04-20"),
-    Date <= as.Date("2026-05-01")
-  ) %>%
-  
-  mutate(
-    DateTime = as.POSIXct(
-      paste(Date, sprintf("%02d:%02d", Hour, Minute))
-    )
-  ) %>%
-  
-  arrange(DateTime)
-
-# =========================================================
-# 4. Actual realized future prices
-# =========================================================
-
-actual_plot <- test_data %>%
-  
-  filter(
-    Date >= min(forecast_long$Date),
-    Date <= max(forecast_long$Date)
-  ) %>%
-  
-  select(
-    Date,
-    Quarter,
-    Hour,
-    Minute,
-    SpotPrice_DK1
-  ) %>%
-  
-  mutate(
-    DateTime = as.POSIXct(
-      paste(Date, sprintf("%02d:%02d", Hour, Minute))
-    )
-  ) %>%
-  
-  arrange(DateTime)
-
-# =========================================================
-# 5. Connect forecast to historical series
-# =========================================================
-
-last_hist_point <- history_plot %>%
-  
-  slice_tail(n = 1) %>%
-  
-  transmute(
-    DateTime,
-    Forecast_Price = SpotPrice_DK1
+cat("\n--- FE Model: Cluster-Robust SE ---\n")
+fe_robust <- coeftest(
+  fe_model,
+  vcov = vcovHC(
+    fe_model,
+    method = "arellano",
+    type = "HC1",
+    cluster = "group"
   )
+)
+fe_robust
+fe_mat <- as.data.frame(fe_robust[, 1:4])
+fe_mat$Variable <- rownames(fe_mat)
+rownames(fe_mat) <- NULL
 
-forecast_plot_connected <- bind_rows(
-  
-  last_hist_point,
-  
-  forecast_plot %>%
-    select(DateTime, Forecast_Price)
+fe_mat$`Pr(>|t|)` <- ifelse(
+  fe_mat$`Pr(>|t|)` < 2.2e-16,
+  "< 2.2e-16",
+  format.pval(fe_mat$`Pr(>|t|)`, digits = 4, eps = 1e-4)
 )
 
-actual_plot_connected <- bind_rows(
-  
-  last_hist_point %>%
-    transmute(
-      DateTime,
-      SpotPrice_DK1 = Forecast_Price
-    ),
-  
-  actual_plot %>%
-    select(DateTime, SpotPrice_DK1)
-)
+fe_mat <- fe_mat[, c("Variable", "Estimate", "Std. Error", "t value", "Pr(>|t|)")]
 
-# =========================================================
-# 6. Plot
-# =========================================================
+# Create LaTeX table
+latex_table <- kable(
+  fe_mat,
+  format = "latex",
+  booktabs = TRUE,
+  digits = 4,
+  caption = "Clustered FE results",
+  label = "quarterly_cluster_FE_test_results"
+) %>%
+  kable_styling(latex_options = c("hold_position"))
 
-p_forecast <- ggplot() +
-  
-  # Historical
-  geom_line(
-    data = history_plot,
-    aes(DateTime, SpotPrice_DK1, color = "Historical"),
-    linewidth = 0.35
-  ) +
-  
-  # Forecast
-  geom_line(
-    data = forecast_plot_connected,
-    aes(DateTime, Forecast_Price, color = "Forecast"),
-    linewidth = 0.7
-  ) +
-  
-  # Actual realized future
-  geom_line(
-    data = actual_plot_connected,
-    aes(DateTime, SpotPrice_DK1, color = "Actual"),
-    linewidth = 0.5,
-    linetype = "22"
-  ) +
-  
-  scale_color_manual(
-    values = c(
-      "Historical" = "black",
-      "Forecast" = "red",
-      "Actual" = "blue"
-    )
-  ) +
-  
-  scale_x_datetime(
-    date_breaks = "1 day",
-    date_labels = "%b %d"
-  ) +
-  
-  labs(
-    title = "Factor Model Forecast vs Actual",
-    x = "Date",
-    y = "Spot Price",
-    color = ""
-  ) +
-  
-  theme_minimal() +
-  
-  theme(
-    legend.position = "right",
-    
-    axis.text.x = element_text(
-      angle = 45,
-      hjust = 1
-    )
+# Save to .tex file
+writeLines(latex_table, "Tables/quarterly_cluster_FE_test_results.tex")
+
+
+
+cat("\n--- RE Model: Cluster-Robust SE ---\n")
+re_robust <- coeftest(
+  re_model,
+  vcov = vcovHC(
+    re_model,
+    method = "arellano",
+    type = "HC1",
+    cluster = "group"
   )
-
-ggsave(
-  filename = "plots/Quarterly/Forecast/forecast_all.png",
-  plot = p_forecast,
-  width = 12,
-  height = 6,
-  dpi = 300
 )
-# ##########################
-# #### DYNAMIC FE MODEL ####
-# ##########################
-# names(pdata)
-# # fe_dyn_model <- plm(
-# #   LogPrice_100 ~ ConsumptionkWh + OffshoreWindPower +
-# #     OnshoreWindPower + SolarPower + lag(LogPrice_100, 96),
-# #   data = pdata,
-# #   model = "within",
-# #   index = c("Quarter", "Date")
-# # )
-# # 
-# # summary(fe_dyn_model)
-# 
-# model_data <- pdata %>%
-#   as.data.frame() %>%
-#   arrange(Date, Quarter) %>%
-#   group_by(Quarter) %>%   # ensure correct panel structure
-#   mutate(
-#     LagLogPrice_96 = dplyr::lag(LogPrice_100, 96)
-#   ) %>%
-#   ungroup() %>%
-#   filter(!is.na(LagLogPrice_96))
-# 
-# fe_dyn_model <- plm(
-#   LogPrice_100 ~ ConsumptionkWh +
-#     OffshoreWindPower +
-#     OnshoreWindPower +
-#     SolarPower +
-#     LagLogPrice_96,
-#   data = model_data,
-#   model = "within",
-#   index = c("Quarter", "Date")
-# )
-# 
-# summary(fe_dyn_model)
-# # Pesaran CD test on the fixed effects model
-# ## is the residuals from the panel model correlated across cross-sectional units
-# pcdtest(fe_dyn_model, test = "cd")
-# 
-# model_data$Predicted <- as.numeric(fitted(fe_dyn_model))
-# model_data$Predicted <- as.numeric(
-#   model.matrix(fe_dyn_model) %*% coef(fe_dyn_model)
-# )
-# 
-# full_plot_data <- pdata %>%
-#   as.data.frame() %>%
-#   arrange(Date, Quarter) %>%
-#   left_join(
-#     model_data %>% select(Date, Quarter, Predicted),
-#     by = c("Date", "Quarter")
-#   )
-# 
-# plot_quarter_hours <- function(data, start_hour = 12) {
-#   
-#   selected_quarters <- (start_hour * 4):((start_hour + 4) * 4 - 1)
-# 
-#   plot_data <- data %>%
-#     filter(Quarter %in% selected_quarters) %>%
-#     filter(!is.na(LogPrice_100), !is.na(Predicted))
-#   
-#   ggplot(plot_data, aes(x = Date, group = Quarter)) +
-#     geom_line(aes(y = LogPrice_100), colour = "black", linewidth = 0.3) +
-#     geom_line(aes(y = Predicted), colour = "red", linewidth = 0.3) +
-#     
-#     facet_wrap(~ QuarterLabel, ncol = 4) +
-#     labs(
-#       title = paste0(
-#         "Quarter-hour electricity prices (hours ",
-#         start_hour, "–", start_hour + 3, ")"
-#       ),
-#       x = NULL,
-#       y = NULL
-#     ) +
-#     
-#     theme_bw() +
-#     theme(
-#       strip.text = element_text(size = 10),
-#       axis.text.x = element_text(size = 6),
-#       axis.text.y = element_text(size = 6),
-#       panel.grid = element_blank(),
-#       plot.title = element_text(face = "bold")
-#     )
-# }
-# 
-# plot_quarter_hours(full_plot_data, start_hour = 12)
-# 
-# 
-# # Create predicted values from the dynamic FE model
-# pdata$Predicted <- NA
-# pdata$Predicted[as.numeric(rownames(model.frame(fe_dyn_model)))] <- predict(fe_dyn_model)
-# # Remove rows with missing predictions
-# # (the lagged variable creates missing values at the beginning)
-# plot_data <- na.omit(data.frame(
-#   Date      = pdata$Date,
-#   Quarter   = pdata$Quarter,
-#   Observed  = pdata$LogPrice_100,
-#   Predicted = pdata$Predicted
-# ))
-# 
-# plot_subset$QuarterLabel <- factor(
-#   plot_subset$Quarter,
-#   levels = c(0, 24, 48, 72),
-#   labels = c("00:00", "06:00", "12:00", "18:00")
-# )
-# 
-# ggplot(plot_subset, aes(x = Date)) +
-#   geom_line(aes(y = Observed, color = "Observed")) +
-#   geom_line(aes(y = Predicted, color = "Predicted")) +
-#   facet_wrap(~ QuarterLabel, scales = "free_y") +
-#   labs(
-#     title = "Observed vs Predicted Log Prices",
-#     x = "Date",
-#     y = "LogPrice_100",
-#     color = ""
-#   ) +
-#   theme_minimal()
-# 
-# # Plot observed vs predicted
-# ggplot(plot_data, aes(x = Date)) +
-#   geom_line(aes(y = Observed, color = "Observed")) +
-#   geom_line(aes(y = Predicted, color = "Predicted")) +
-#   facet_wrap(~ Quarter, scales = "free_y") +
-#   labs(
-#     title = "Observed vs Predicted Log Prices by Quarter",
-#     x = "Date",
-#     y = "LogPrice_100",
-#     color = ""
-#   ) +
-#   theme_minimal()
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# plot_data <- model.frame(fe_dyn_model)
-# 
-# plot_data$Fitted <- fitted(fe_dyn_model)
-# plot_data$Residuals <- residuals(fe_dyn_model)
-# plot_data$Predicted <- as.numeric(predict(fe_dyn_model))
-# 
-# ggplot(plot_data, aes(x = 1:nrow(plot_data))) +
-#   geom_line(aes(y = LogPrice_100, color = "LogPrice_100")) +
-#   geom_line(aes(y = Predicted, color = "Predicted")) +
-#   labs(
-#     title = "LogPrice_100 vs Predicted",
-#     x = "Observation",
-#     y = "Log Price"
-#   ) +
-#   theme_minimal()
-# # -------------------------------
-# # 2. Residuals vs Fitted Values
-# # -------------------------------
-# 
-# ggplot(plot_data, aes(x = Fitted, y = Residuals)) +
-#   geom_point(alpha = 0.3) +
-#   geom_hline(yintercept = 0, linetype = "dashed") +
-#   labs(
-#     title = "Residuals vs Fitted Values",
-#     x = "Fitted Values",
-#     y = "Residuals"
-#   ) +
-#   theme_minimal()
-# 
-# # -------------------------------
-# # 3. Histogram of Residuals
-# # -------------------------------
-# plot_data <- data.frame(
-#   LogPrice_100 = as.numeric(plot_data$LogPrice_100),
-#   Fitted       = as.numeric(fitted(fe_dyn_model)),
-#   Residuals    = as.numeric(residuals(fe_dyn_model))
-# )
-# ggplot(plot_data, aes(x = Residuals)) +
-#   geom_histogram(bins = 50) +
-#   labs(
-#     title = "Distribution of Residuals",
-#     x = "Residuals",
-#     y = "Frequency"
-#   ) +
-#   theme_minimal()
-# 
-# # -------------------------------
-# # 4. Residuals Over Time
-# # -------------------------------
-# 
-# ggplot(plot_subset, aes(x = 1:nrow(plot_subset), y = Residuals)) +
-#   geom_line() +
-#   geom_hline(yintercept = 0, linetype = "dashed") +
-#   labs(
-#     title = "Residuals Over Time",
-#     x = "Time",
-#     y = "Residuals"
-#   ) +
-#   theme_minimal()
-# 
-# # -------------------------------
-# # 5. ACF Plot of Residuals
-# # -------------------------------
-# 
-# acf(plot_data$Residuals,
-#     main = "ACF of Residuals")
-# 
-# 
-# ###############
-# #### Kilde ####
-# ###############
-# # log variables
-# pdata <- pdata %>%
-#   mutate(
-#     log_consumption = log(ConsumptionkWh),
-#     log_offshore = log(OffshoreWindPower + 1),
-#     log_onshore  = log(OnshoreWindPower + 1),
-#     log_solar    = log(SolarPower + 1)
-#   )
-# 
-# #removes season like paper
-# pdata <- pdata %>%
-#   mutate(
-#     trend = row_number(),
-#     cos_year = cos(2*pi*trend/365),
-#     cos_week = cos(2*pi*trend/7)
-#   )
-# 
-# pdata <- pdata %>%
-#   arrange(Date, Quarter) %>%
-#   mutate(
-#     lag_price_1 = lag(LogPrice, 1),
-#     lag_price_2 = lag(LogPrice, 2),
-#     lag_price_7 = lag(LogPrice, 7)
-#   )
-# 
-# factor_data <- pdata %>%
-#   select(log_consumption, log_offshore, log_onshore, log_solar) %>%  #,
-#          #lag_price_1, lag_price_2, lag_price_7) %>%
-#   drop_na()
-# 
-# # Standardize - so all variables have mean 0 and variance 1
-# X_factor <- scale(factor_data)
-# 
-# # Extract factors using PCA
-# pca_model <- prcomp(X_factor)
-# 
-# # choose how many factors to include in the model
-# summary(pca_model)
-# 
-# pca_model$rotation
-# 
-# factors <- as.data.frame(pca_model$x[, 1:3])
-# colnames(factors) <- c("F1", "F2", "F3")#, "F4", "F5")
-# 
-# pdata_model <- pdata %>%
-#   drop_na() %>%
-#   bind_cols(factors)
-# 
-# far_model <- lm(
-#   LogPrice ~ log_consumption + log_offshore + log_onshore + log_solar + F1 + F2 + F3,
-#   data = pdata_model
-# )
-# 
-# summary(far_model)
-# 
-# 
-# pdata_panel <- pdata_model %>%
-#   mutate(id = Quarter) %>%
-#   pdata.frame(index = c("id", "Date"))
-# 
-# far_fe <- plm(
-#   LogPrice ~ log_consumption + log_offshore + log_onshore + log_solar + F1 + F2 +F3,
-#   data = pdata_panel,
-#   model = "within"
-# )
-# 
-# summary(far_fe)
-# 
-# #
-# summary(pca_model)$importance[2,]
-# # multicollinearity
-# cor(pdata_model %>% select(log_consumption, log_offshore, log_onshore, log_solar))
-# 
-# 
-# 
-# ###########################
-# #### DYAMIC PANEL DATA ####
-# ###########################
-# # Dynamic fixed effects time-series cross-section model
-# dyn_fe_model <- plm(
-#   LogPrice ~ lag(LogPrice, 1) + lag(LogPrice, 7) + lag(LogPrice, 2) + 
-#     ConsumptionkWh + OffshoreWindPower+ OnshoreWindPower + SolarPower + Quarter,
-#   data = pdata,
-#   model = "within"
-# )
-# 
-# ab_model <- pgmm(
-#   LogPrice_100 ~ lag(LogPrice_100, 1:2) +
-#     ConsumptionkWh + OffshoreWindPower +
-#     OnshoreWindPower + SolarPower |
-#     lag(LogPrice_100, 2:99),
-#   data = pdata,
-#   effect = "individual",
-#   model = "twosteps",
-#   transformation = "d"
-# )
-# 
-# summary(ab_model)
-# # hvorfor factor(Hour): Electricity prices are heavily driven by predictable intraday patterns, and failing to control for them would bias both consumption and lag effects.
-# # hvorfor kun within: Although the inclusion of a lagged dependent variable introduces endogeneity in short panels, the bias of the fixed effects estimator decreases at rate O(1/T). Given the large time dimension in the present dataset, the bias is expected to be negligible, and the within estimator is therefore used for both static and dynamic specifications.
-# summary(dyn_fe_model)
-# # Yit=αi+0.636Yi,t−1+0.240Yi,t−7+0.032Yi,t−2−0.00144Consumptionit+εit
-# # very strong persistence (0.64)
-# # weekly cycle (lag 7)
-# # short-term inertia (lag 2)
-# # consumption slightly lowers price
-# 
-# # Pesaran CD test on the fixed effects model
-# ## is the residuals from the panel model correlated across cross-sectional units
-# cd_test <- pcdtest(dyn_fe_model, test = "cd")
-# 
-# cd_test
+re_robust
+re_mat <- as.data.frame(re_robust[1:5, 1:4])
+re_mat$Variable <- rownames(re_mat)
+rownames(re_mat) <- NULL
+
+re_mat$`Pr(>|t|)` <- ifelse(
+  re_mat$`Pr(>|t|)` < 2.2e-16,
+  "< 2.2e-16",
+  format.pval(re_mat$`Pr(>|t|)`, digits = 4, eps = 1e-4)
+)
+
+
+# Reorder columns nicely
+re_mat <- re_mat[, c("Variable", "Estimate", "Std. Error", "t value", "Pr(>|t|)")]
+
+# Create LaTeX table
+latex_table <- kable(
+  re_mat,
+  format = "latex",
+  booktabs = TRUE,
+  digits = 4,
+  caption = "Clustered RE results",
+  label = "quarterly_cluster_RE_test_results"
+) %>%
+  kable_styling(latex_options = c("hold_position"))
+
+# Save to .tex file
+writeLines(latex_table, "Tables/quarterly_cluster_RE_test_results.tex")
+
+
+# =========================================================
+# DRISCOLL-KRAAY STANDARD ERRORS
+# =========================================================
+
+cat("\n================ DRISCOLL-KRAAY STANDARD ERRORS ================\n")
+
+fe_dk <- coeftest(
+  fe_model,
+  vcov = vcovSCC(fe_model, type = "HC1")
+)
+print(fe_dk)
+
+fe_dk <- as.data.frame(fe_dk[, 1:4])
+fe_dk$Variable <- rownames(fe_dk)
+rownames(fe_dk) <- NULL
+
+fe_dk$`Pr(>|t|)` <- ifelse(
+  fe_dk$`Pr(>|t|)` < 2.2e-16,
+  "< 2.2e-16",
+  format.pval(fe_dk$`Pr(>|t|)`, digits = 4, eps = 1e-4)
+)
+
+
+# Reorder columns nicely
+fe_dk_last <- fe_dk[, c("Variable", "Estimate", "Std. Error", "t value", "Pr(>|t|)")]
+
+# Create LaTeX table
+latex_table <- kable(
+  fe_dk_last,
+  format = "latex",
+  booktabs = TRUE,
+  digits = 4,
+  caption = "Driscoll-Krayy Standard Errors",
+  label = "quarterly_driscoll_test_results"
+) %>%
+  kable_styling(latex_options = c("hold_position"))
+
+# Save to .tex file
+writeLines(latex_table, "Tables/quarterly_driscoll_test_results.tex")
+# =========================================================
+# MULTICOLLINEARITY (VIF)
+# =========================================================
+
+cat("\n================ VARIANCE INFLATION FACTORS ================\n")
+
+vif_model <- lm(
+  LogPrice_100 ~ Consumption_DK1 +
+    OffshoreWindPower_DK1 +
+    OnshoreWindPower_DK1 +
+    SolarPower_DK1,
+  data = train_pdata
+)
+
+print(vif(vif_model))
+
+# =========================================================
+# RANDOM EFFECTS VARIANCE DECOMPOSITION
+# =========================================================
+
+cat("\n================ RANDOM EFFECTS VARIANCE DECOMPOSITION ================\n")
+print(summary(re_model))
+
+# =========================================================
+# RESIDUAL ANALYSIS
+# =========================================================
+
+fe_resid <- residuals(fe_model)
+
+cat("\n================ RESIDUAL SUMMARY ================\n")
+print(summary(fe_resid))
+
+cat("\n================ SHAPIRO TEST (sampled if large n) ================\n")
+
+# Shapiro test fails for very large samples, so sample if needed
+if(length(fe_resid) > 5000){
+  set.seed(123)
+  fe_resid_sample <- sample(fe_resid, 5000)
+  print(shapiro.test(fe_resid_sample))
+} else {
+  print(shapiro.test(fe_resid))
+}
+
+# =========================================================
+# RESIDUAL PLOTS
+# =========================================================
+png("Plots/Quarterly/residuals_plots_2x2.png", width = 2000, height = 1400, res = 300)
+par(mfrow = c(2,2))
+
+# Residual time plot
+plot(
+  as.numeric(fe_resid),
+  type = "l",
+  main = "FE Residuals Over Time",
+  ylab = "Residuals",
+  xlab = "Observation"
+)
+
+# ACF plot
+acf(
+  fe_resid,
+  main = "ACF of FE Residuals"
+)
+
+# Histogram
+hist(
+  fe_resid,
+  breaks = 50,
+  main = "Histogram of FE Residuals",
+  xlab = "Residuals"
+)
+
+# QQ-plot
+qqnorm(fe_resid, col = "blue")
+qqline(fe_resid, col = "red")
+
+par(mfrow = c(1,1))
+dev.off()
+# =========================================================
+# OPTIONAL: FORECAST ACCURACY METRICS
+# (ONLY RUN IF YOU HAVE actual and predicted values)
+# =========================================================
+
+# Example:
+actual <- test_data$LogPrice_100
+predicted <- predict(fe_model, newdata = test_data)
+
+rmse <- sqrt(mean((actual - predicted)^2))
+mae  <- mean(abs(actual - predicted))
+mape <- mean(abs((actual - predicted)/actual))*100
+
+cat("\n================ FORECAST METRICS ================\n")
+cat("RMSE:", rmse, "\n")
+cat("MAE :", mae, "\n")
+cat("MAPE:", mape, "\n")
